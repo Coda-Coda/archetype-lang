@@ -56,6 +56,6 @@ nix-shell # or nix-build or nix-env -if default.nix
 > Note: after making any updates, if using fetchFromGitHub, the `rev` and `sha256` hashes need to be updated. `rev` is the commit hash, and `sha256` can be found by running: `nix-prefetch-url --unpack https://github.com/Coda-Coda/archetype-lang/archive/NEW-COMMIT-HASH.tar.gz`
 
 You can run the following to regenerate opam2nix.nix after changes to any of archetype's dependencies:
-`nix-shell -A resolve default.nix`
+`nix-shell -A resolve helper.nix`
 
 Note: opam2nix does not work well with some more recent versions of digestif. The relevant fix was made in commit `ca406363dd109740e0f917f525edec694c88235d`. (Note that some more recent versions than 0.7.4 may work but have not been tested. 0.7.2 and 0.7.3 seem to allow archetype to build successfully). See also [the issue in opam2nix](https://github.com/timbertson/opam2nix/issues/37).
