@@ -34,6 +34,6 @@ on the Tezos blockchain, with a specific focus on contract security
     visitors
   )
   (conflicts
-    (digestif (=  0.7.4))
+    (digestif (>=  0.7.4))
   )
 )
