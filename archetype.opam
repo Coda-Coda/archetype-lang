@@ -34,5 +34,5 @@ depends: [
   "visitors"
 ]
 conflicts: [
-  "digestif" {= "0.7.4"}
+  "digestif" {>= "0.7.4"}
 ]
