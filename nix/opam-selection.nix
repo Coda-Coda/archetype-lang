@@ -13,8 +13,8 @@ let
         {
           owner = "ocaml";
           repo = "opam-repository";
-          rev = "54b0223dcacb6311aa12f5342c34e1be684a79a3";
-          sha256 = "19j0q1c83n4271s04kh7v7vkkssqcz4rx7kf90ry6gh5x8j7k8rb";
+          rev = "c5d6fff56ca9289272183e64c21c685efefbed0e";
+          sha256 = "18ncbngzk2ymqpqc8sqx9pq1sh3m4pv0kfhi00smsnr7lv5657hg";
         };
         src = (pkgs.fetchFromGitHub) fetch;
       };
@@ -33,6 +33,7 @@ in
       {
         digestif = selection.digestif;
         dune = selection.dune;
+        hex = selection.hex;
         menhir = selection.menhir;
         num = selection.num;
         ocaml = selection.ocaml;
@@ -45,19 +46,6 @@ in
       pname = "archetype";
       src = self.directSrc "archetype";
       version = "development";
-    };
-    base-bigarray = 
-    {
-      opamInputs = {
-      };
-      opamSrc = repoPath (repos.opam-repository.src) 
-      {
-        hash = "sha256:1hgfwxh4vdv21m2a4g506y27pcv912v67qi4svrn53rgc43ckv6b";
-        package = "packages/base-bigarray/base-bigarray.base";
-      };
-      pname = "base-bigarray";
-      src = null;
-      version = "base";
     };
     base-bytes = 
     {
@@ -100,6 +88,26 @@ in
       pname = "base-unix";
       src = null;
       version = "base";
+    };
+    bigarray-compat = 
+    {
+      opamInputs = 
+      {
+        dune = selection.dune;
+        ocaml = selection.ocaml;
+      };
+      opamSrc = repoPath (repos.opam-repository.src) 
+      {
+        hash = "sha256:0lbmlg7kqy0bvca7v5qib69ayiryy5hlkzhzfg7qwq9n29aygc97";
+        package = "packages/bigarray-compat/bigarray-compat.1.0.0";
+      };
+      pname = "bigarray-compat";
+      src = pkgs.fetchurl 
+      {
+        sha256 = "1bpmmnxb1yx72aqlbdaqfl18rgz1cq9cf6cqvnfl88mz5dfr4x0d";
+        url = "https://github.com/mirage/bigarray-compat/archive/v1.0.0.tar.gz";
+      };
+      version = "1.0.0";
     };
     biniou = 
     {
@@ -157,32 +165,52 @@ in
       };
       version = "1.6.6";
     };
+    cstruct = 
+    {
+      opamInputs = 
+      {
+        bigarray-compat = selection.bigarray-compat;
+        dune = selection.dune;
+        ocaml = selection.ocaml;
+      };
+      opamSrc = repoPath (repos.opam-repository.src) 
+      {
+        hash = "sha256:0y9yd5sf5bpmnf36259il1asr1gmy2wkrfzd7wc0yzrnzy6fji79";
+        package = "packages/cstruct/cstruct.6.0.0";
+      };
+      pname = "cstruct";
+      src = pkgs.fetchurl 
+      {
+        sha256 = "0xi6cj85z033fqrqdkwac6gg07629vzdhx03c3lhiwwc4lpnv8bq";
+        url = "https://github.com/mirage/ocaml-cstruct/releases/download/v6.0.0/cstruct-v6.0.0.tbz";
+      };
+      version = "6.0.0";
+    };
     digestif = 
     {
       opamInputs = 
       {
-        alcotest = selection.alcotest or null;
-        base-bigarray = selection.base-bigarray;
         base-bytes = selection.base-bytes;
+        bigarray-compat = selection.bigarray-compat;
         dune = selection.dune;
         eqaf = selection.eqaf;
-        fmt = selection.fmt or null;
         mirage-xen-posix = selection.mirage-xen-posix or null;
         ocaml = selection.ocaml;
         ocaml-freestanding = selection.ocaml-freestanding or null;
+        stdlib-shims = selection.stdlib-shims;
       };
       opamSrc = repoPath (repos.opam-repository.src) 
       {
-        hash = "sha256:1ck6rhl7vxn1ynl7n4i1zm07mh3855vm8ykj33r6lklrvk0cj6x2";
-        package = "packages/digestif/digestif.0.7.3";
+        hash = "sha256:177g8wpkbmkx3al73nvvz7sjgmvjdxpadddlqg11ssnsmv2q5j90";
+        package = "packages/digestif/digestif.0.9.0";
       };
       pname = "digestif";
       src = pkgs.fetchurl 
       {
-        sha256 = "13ndhb1l1xp051ahypw90zbb0y0nllxk7wp227xv8jmq8gaky3ps";
-        url = "https://github.com/mirage/digestif/releases/download/v0.7.3/digestif-v0.7.3.tbz";
+        sha256 = "0vk9prgjp46xs8qizq7szkj6mqjj2ymncs2016bc8zswcdc1a3q4";
+        url = "https://github.com/mirage/digestif/releases/download/v0.9.0/digestif-v0.9.0.tbz";
       };
-      version = "0.7.3";
+      version = "0.9.0";
     };
     dune = 
     {
@@ -195,16 +223,16 @@ in
       };
       opamSrc = repoPath (repos.opam-repository.src) 
       {
-        hash = "sha256:1jb0lydg93nbh4xyvy0s4yq4abkvcd0bj0b545rppyhvw7vl2hpc";
-        package = "packages/dune/dune.2.5.1";
+        hash = "sha256:0xl07c5sr54aq45a3xszns1rg5ml5ap4m2gc0g0jf82y4yh1ly95";
+        package = "packages/dune/dune.2.7.1";
       };
       pname = "dune";
       src = pkgs.fetchurl 
       {
-        sha256 = "0az5ih18wadsp3ljagvws1i7vf0vpg24h75ariy0v3i0gyld6xwg";
-        url = "https://github.com/ocaml/dune/releases/download/2.5.1/dune-2.5.1.tbz";
+        sha256 = "0pcjf209gynjwipnpplaqyvyivnawqiwhvqnivhkybisicpqyln3";
+        url = "https://github.com/ocaml/dune/releases/download/2.7.1/dune-2.7.1.tbz";
       };
-      version = "2.5.1";
+      version = "2.7.1";
     };
     easy-format = 
     {
@@ -230,10 +258,7 @@ in
     {
       opamInputs = 
       {
-        alcotest = selection.alcotest or null;
-        base64 = selection.base64 or null;
         bigarray-compat = selection.bigarray-compat or null;
-        crowbar = selection.crowbar or null;
         cstruct = selection.cstruct or null;
         dune = selection.dune;
         ocaml = selection.ocaml;
@@ -250,6 +275,28 @@ in
         url = "https://github.com/mirage/eqaf/releases/download/v0.7/eqaf-v0.7.tbz";
       };
       version = "0.7";
+    };
+    hex = 
+    {
+      opamInputs = 
+      {
+        bigarray-compat = selection.bigarray-compat;
+        cstruct = selection.cstruct;
+        dune = selection.dune;
+        ocaml = selection.ocaml;
+      };
+      opamSrc = repoPath (repos.opam-repository.src) 
+      {
+        hash = "sha256:1p6fbjw8ymp4i5w1v6lcslvc7dq1pkz364kbi22jn6zvm9fpg9k6";
+        package = "packages/hex/hex.1.4.0";
+      };
+      pname = "hex";
+      src = pkgs.fetchurl 
+      {
+        sha256 = "07b9y0lmnflsslkrm6xilkj40n8sf2hjqkyqghnk7sw5l0plkqsp";
+        url = "https://github.com/mirage/ocaml-hex/releases/download/v1.4.0/hex-v1.4.0.tbz";
+      };
+      version = "1.4.0";
     };
     menhir = 
     {
@@ -357,16 +404,16 @@ in
       };
       opamSrc = repoPath (repos.opam-repository.src) 
       {
-        hash = "sha256:1w9h2m91ya63x4jp5lvnnq3vfcnv1izmcq0i5k6n4g27br3l8ga9";
-        package = "packages/ocaml-base-compiler/ocaml-base-compiler.4.08.1";
+        hash = "sha256:016xrbxl4si6w0y4pbmzwbq8jhgqwz80y3as6qqvvw6sjl2crkhz";
+        package = "packages/ocaml-base-compiler/ocaml-base-compiler.4.11.1";
       };
       pname = "ocaml-base-compiler";
       src = pkgs.fetchurl 
       {
-        sha256 = "11fvsm861lr73lk181gl5iczprp8d83fvgc1q6dx8gxqhzad6gmm";
-        url = "https://github.com/ocaml/ocaml/archive/4.08.1.tar.gz";
+        sha256 = "1bsb8mgqm3hg6nc11rggnn8ivbp69v0syfy3r1hv2a2h8rfxag6d";
+        url = "https://github.com/ocaml/ocaml/archive/4.11.1.tar.gz";
       };
-      version = "4.08.1";
+      version = "4.11.1";
     };
     ocaml-config = 
     {
@@ -406,6 +453,19 @@ in
         url = "https://github.com/ocaml-ppx/ocaml-migrate-parsetree/releases/download/v1.7.3/ocaml-migrate-parsetree-v1.7.3.tbz";
       };
       version = "1.7.3";
+    };
+    ocaml-system = 
+    {
+      opamInputs = {
+      };
+      opamSrc = repoPath (repos.opam-repository.src) 
+      {
+        hash = "sha256:11687h71imdvkyhb28aldhs20czhj7bdpyprk19rbzrnhsqn9ylf";
+        package = "packages/ocaml-system/ocaml-system.4.08.1";
+      };
+      pname = "ocaml-system";
+      src = null;
+      version = "4.08.1";
     };
     ocamlfind = 
     {
@@ -456,7 +516,6 @@ in
         dune = selection.dune;
         ocaml = selection.ocaml;
         ocaml-migrate-parsetree = selection.ocaml-migrate-parsetree;
-        ounit = selection.ounit or null;
         ppx_derivers = selection.ppx_derivers;
         ppx_tools = selection.ppx_tools;
         ppxfind = selection.ppxfind;
@@ -482,7 +541,6 @@ in
         cppo = selection.cppo;
         dune = selection.dune;
         ocaml = selection.ocaml;
-        ounit = selection.ounit or null;
         ppx_deriving = selection.ppx_deriving;
         ppx_tools = selection.ppx_tools;
         ppxfind = selection.ppxfind;
@@ -564,6 +622,26 @@ in
       };
       version = "1.5";
     };
+    stdlib-shims = 
+    {
+      opamInputs = 
+      {
+        dune = selection.dune;
+        ocaml = selection.ocaml;
+      };
+      opamSrc = repoPath (repos.opam-repository.src) 
+      {
+        hash = "sha256:041f37xj7k9np8fkn3ccp5594a198ijivjndqdzi0a3sr587a5p9";
+        package = "packages/stdlib-shims/stdlib-shims.0.1.0";
+      };
+      pname = "stdlib-shims";
+      src = pkgs.fetchurl 
+      {
+        sha256 = "1jv6yb47f66239m7hsz7zzw3i48mjpbvfgpszws48apqx63wjwsk";
+        url = "https://github.com/ocaml/stdlib-shims/releases/download/0.1.0/stdlib-shims-0.1.0.tbz";
+      };
+      version = "0.1.0";
+    };
     visitors = 
     {
       opamInputs = 
@@ -592,7 +670,6 @@ in
     {
       opamInputs = 
       {
-        alcotest = selection.alcotest or null;
         biniou = selection.biniou;
         cppo = selection.cppo;
         dune = selection.dune;
