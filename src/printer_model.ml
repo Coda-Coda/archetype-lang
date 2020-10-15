@@ -71,14 +71,16 @@ let rec pp_type fmt t =
       pp_type v
   | Trecord id ->
     Format.fprintf fmt "%a" pp_id id
+  | Tlambda (a, r) ->
+    Format.fprintf fmt "(%a -> %a)" pp_type a pp_type r
   | Tunit ->
     Format.fprintf fmt "unit"
   | Tstorage ->
     Format.fprintf fmt "storage"
   | Toperation ->
     Format.fprintf fmt "operation"
-  | Tentrysig t ->
-    Format.fprintf fmt "entrysig<%a>" pp_type t
+  | Tcontract t ->
+    Format.fprintf fmt "contract<%a>" pp_type t
   | Tprog _
   | Tvset _
   | Ttrace _ -> Format.fprintf fmt "todo"
@@ -115,10 +117,22 @@ let pp_entry_description fmt ad =
   | ADiterate  id -> Format.fprintf fmt "iterate (%a)" pp_ident id
   | ADcall     id -> Format.fprintf fmt "call (%a)" pp_ident id
 
+let pp_temp fmt = function
+  | Tbefore -> Format.fprintf fmt "before."
+  | Tat i   -> Format.fprintf fmt "at(%s)." i
+  | Tnone   -> ()
+
+let pp_delta fmt = function
+  | Dadded   -> Format.fprintf fmt "added."
+  | Dremoved -> Format.fprintf fmt "removed."
+  | Dunmoved -> Format.fprintf fmt "unmoved."
+  | Dnone    -> ()
+
 let pp_container_kind f fmt = function
-  | CKcoll     -> pp_str fmt "_Coll_"
-  | CKview mt  -> f fmt mt
-  | CKfield (an, fn, mt) -> Format.fprintf fmt "CKfield (%s, %s, %a)" an fn f mt
+  | CKcoll (t, d)              -> Format.fprintf fmt "_%a%aColl_" pp_temp t pp_delta d
+  | CKview mt                  -> f fmt mt
+  | CKfield (an, fn, mt, t, d) -> Format.fprintf fmt "%a%aCKfield (%s, %s, %a)" pp_temp t pp_delta d an fn f mt
+  | CKdef v                    -> Format.fprintf fmt "_Def(%s)_" v
 
 let pp_iter_container_kind f fmt = function
   | ICKcoll  an         -> Format.fprintf fmt "%a" pp_str an
@@ -348,6 +362,15 @@ let pp_mterm fmt (mt : mterm) =
       in
       pp fmt (e, l)
 
+    | Mmatchsome (e, n, i, s) ->
+      let pp fmt (e, n, i, s) =
+        Format.fprintf fmt "match_some %a with@\n| None -> @[%a@]@\n| Some %s -> @[%a@]"
+          f e
+          f n
+          i
+          f s
+      in
+      pp fmt (e, n, i, s)
 
     (* composite type constructors *)
 
@@ -402,15 +425,6 @@ let pp_mterm fmt (mt : mterm) =
         f k
         pp_id fn
 
-    | Mdotcontract (e, i) ->
-      Format.fprintf fmt "%a (%a)"
-        pp_id i
-        f e
-
-    | Maccestuple (e, i) ->
-      Format.fprintf fmt "%a[%a]"
-        f e
-        pp_big_int i
 
     (* comparison operators *)
 
@@ -494,6 +508,14 @@ let pp_mterm fmt (mt : mterm) =
       in
       pp fmt (l, r)
 
+    | Mxor (l, r) ->
+      let pp fmt (l, r) =
+        Format.fprintf fmt "%a xor %a"
+          f l
+          f r
+      in
+      pp fmt (l, r)
+
     | Mnot e ->
       let pp fmt e =
         Format.fprintf fmt "not %a"
@@ -548,13 +570,6 @@ let pp_mterm fmt (mt : mterm) =
           f r
       in
       pp fmt (l, r)
-
-    | Muplus e ->
-      let pp fmt e =
-        Format.fprintf fmt "+%a"
-          f e
-      in
-      pp fmt e
 
     | Muminus e ->
       let pp fmt e =
@@ -658,6 +673,14 @@ let pp_mterm fmt (mt : mterm) =
       in
       pp fmt (an, c, k, l)
 
+    | Maddforce (an, v) ->
+      let pp fmt (an, v) =
+        Format.fprintf fmt "add_force_%a (%a)"
+          pp_str an
+          f v
+      in
+      pp fmt (an, v)
+
 
     (* asset api expression *)
 
@@ -757,6 +780,14 @@ let pp_mterm fmt (mt : mterm) =
       in
       pp fmt (x, k)
 
+    | Mrecupdate (x, l) ->
+      let pp fmt (x, l) =
+        Format.fprintf fmt "{ %a with %a }"
+          f x
+          (pp_list " " (fun fmt (i, v) -> Format.fprintf fmt "%s = %a" i f v)) l
+      in
+      pp fmt (x, l)
+
 
     (* set api expression *)
 
@@ -783,6 +814,15 @@ let pp_mterm fmt (mt : mterm) =
         pp_type t
         f c
 
+    | Msetfold (t, ix, ia, c, a, b) ->
+      Format.fprintf fmt "set_%a_fold (%a, %a, (%a, %a) ->@\n  @[%a@])"
+        pp_type t
+        f c
+        f a
+        pp_id ix
+        pp_id ia
+        f b
+
 
     (* list api expression *)
 
@@ -791,20 +831,36 @@ let pp_mterm fmt (mt : mterm) =
         f c
         f a
 
-    | Mlistcontains (_, c, a) ->
-      Format.fprintf fmt "list_contains (%a, %a)"
+    | Mlistheadtail (_, c) ->
+      Format.fprintf fmt "list_head_tail (%a)"
         f c
-        f a
 
     | Mlistlength (_, c) ->
       Format.fprintf fmt "list_length (%a)"
         f c
+
+    | Mlistcontains (_, c, a) ->
+      Format.fprintf fmt "list_contains (%a, %a)"
+        f c
+        f a
 
     | Mlistnth (_, c, a) ->
       Format.fprintf fmt "list_nth (%a, %a)"
         f c
         f a
 
+    | Mlistreverse (_, l) ->
+      Format.fprintf fmt "list_reverse (%a)"
+        f l
+
+    | Mlistfold (t, ix, ia, c, a, b) ->
+      Format.fprintf fmt "list_%a_fold (%a, %a, (%a, %a) ->@\n  @[%a@])"
+        pp_type t
+        f c
+        f a
+        pp_id ix
+        pp_id ia
+        f b
 
     (* map api expression *)
 
@@ -838,6 +894,15 @@ let pp_mterm fmt (mt : mterm) =
       Format.fprintf fmt "map_length (%a)"
         f c
 
+    | Mmapfold (t, ik, iv, ia, c, a, b) ->
+      Format.fprintf fmt "map_%a_fold (%a, %a, (%a, (%a, %a)) ->@\n  @[%a@])"
+        pp_type t
+        f c
+        f a
+        pp_id ia
+        pp_id ik
+        pp_id iv
+        f b
 
     (* builtin functions *)
 
@@ -936,19 +1001,21 @@ let pp_mterm fmt (mt : mterm) =
     | Msource        -> pp_str fmt "source"
     | Mselfaddress   -> pp_str fmt "selfaddress"
     | Mchainid       -> pp_str fmt "chain_id"
+    | Mmetadata      -> pp_str fmt "metadata"
 
 
     (* variable *)
 
-    | Mvar (an, Vassetstate k) -> Format.fprintf fmt "state_%a(%a)" pp_str (Location.unloc an) f k
-    | Mvar(v, Vstorevar) -> Format.fprintf fmt "s.%a" pp_id v
-    | Mvar(v, Vstorecol) -> pp_id fmt v
-    | Mvar(v, Venumval)  -> pp_id fmt v
-    | Mvar(v, Vlocal)    -> pp_id fmt v
-    | Mvar(v, Vparam)    -> pp_id fmt v
-    | Mvar(v, Vfield)    -> pp_id fmt v
-    | Mvar(_, Vthe)      -> pp_str fmt "the"
-    | Mvar(_, Vstate)    -> pp_str fmt "state"
+    | Mvar (an, Vassetstate k, t, d) -> Format.fprintf fmt "%a%astate_%a(%a)" pp_temp t pp_delta d pp_str (Location.unloc an) f k
+    | Mvar(v, Vstorevar, t, d)       -> Format.fprintf fmt "%a%as.%a" pp_temp t pp_delta d pp_id v
+    | Mvar(v, Vstorecol, t, d)       -> Format.fprintf fmt "%a%a%a" pp_temp t pp_delta d pp_id v
+    | Mvar(v, Venumval, t, d)        -> Format.fprintf fmt "%a%a%a" pp_temp t pp_delta d pp_id v
+    | Mvar(v, Vdefinition, t, d)     -> Format.fprintf fmt "%a%a%a" pp_temp t pp_delta d pp_id v
+    | Mvar(v, Vlocal, t, d)          -> Format.fprintf fmt "%a%a%a" pp_temp t pp_delta d pp_id v
+    | Mvar(v, Vparam, t, d)          -> Format.fprintf fmt "%a%a%a" pp_temp t pp_delta d pp_id v
+    | Mvar(v, Vfield, t, d)          -> Format.fprintf fmt "%a%a%a" pp_temp t pp_delta d pp_id v
+    | Mvar(_, Vthe, t, d)            -> Format.fprintf fmt "%a%athe" pp_temp t pp_delta d
+    | Mvar(_, Vstate, t, d)          -> Format.fprintf fmt "%a%astate" pp_temp t pp_delta d
 
 
     (* rational *)
@@ -1009,14 +1076,6 @@ let pp_mterm fmt (mt : mterm) =
       in
       pp fmt (c, t)
 
-    | Mdivtez (c, t) ->
-      let pp fmt (c, t) =
-        Format.fprintf fmt "div_tez (%a, %a)"
-          f c
-          f t
-      in
-      pp fmt (c, t)
-
     | Mnattoint e ->
       let pp fmt e =
         Format.fprintf fmt "nat_to_int (%a)"
@@ -1045,21 +1104,6 @@ let pp_mterm fmt (mt : mterm) =
           f t
       in
       pp fmt (c, t)
-
-
-    (* functional *)
-
-    | Mfold (i, is, c, b) ->
-      Format.fprintf fmt "fold %a %a %a (@\n  @[%a@]@\n)@\n"
-        pp_id i
-        (pp_list "%@," pp_id) is
-        f c
-        f b
-
-
-    (* imperative *)
-
-    | Mbreak -> pp_str fmt "break"
 
 
     (* quantifiers *)
@@ -1111,27 +1155,6 @@ let pp_mterm fmt (mt : mterm) =
 
 
     (* formula asset collection *)
-
-    | Msetbefore e ->
-      Format.fprintf fmt "before %a"
-        f e
-
-    | Msetat (lbl, e) ->
-      Format.fprintf fmt "at(%a) %a"
-        pp_str lbl
-        f e
-
-    | Msetunmoved e ->
-      Format.fprintf fmt "unmoved %a"
-        f e
-
-    | Msetadded e ->
-      Format.fprintf fmt "added %a"
-        f e
-
-    | Msetremoved e ->
-      Format.fprintf fmt "removed %a"
-        f e
 
     | Msetiterated e ->
       Format.fprintf fmt "iterated (%a)"
@@ -1241,6 +1264,7 @@ let pp_api_list fmt = function
   | Lcontains t -> Format.fprintf fmt "list_contains\t %a" pp_type t
   | Llength t   -> Format.fprintf fmt "list_length\t %a" pp_type t
   | Lnth t      -> Format.fprintf fmt "list_nth\t %a" pp_type t
+  | Lreverse t  -> Format.fprintf fmt "list_reverse\t %a" pp_type t
 
 let pp_api_builtin fmt = function
   | Bmin    t   -> Format.fprintf fmt "min on %a"    pp_type t
@@ -1263,7 +1287,6 @@ let pp_api_internal fmt = function
   | RatArith     -> Format.fprintf fmt "rat_arith"
   | RatUminus    -> Format.fprintf fmt "rat_uminus"
   | RatTez       -> Format.fprintf fmt "rat_to_tez"
-  | DivTez       -> Format.fprintf fmt "divtez"
   | RatDur       -> Format.fprintf fmt "ratdur"
 
 let pp_api_item_node fmt = function
@@ -1395,6 +1418,14 @@ let pp_specification fmt (v : specification) =
       pp_type d.typ
       pp_mterm d.body
   in
+  let pp_fail fmt (f : fail) =
+    Format.fprintf fmt "%a with (%a : %a):@\n  @[%a@];"
+      pp_id f.label
+      pp_id f.arg
+      pp_type f.atype
+      pp_mterm f.formula
+  in
+  let pp_fails fmt l = if List.is_empty l then () else Format.fprintf fmt "fails {@\n  @[%a@]@\n}" (pp_list "@\n" pp_fail) l in
   let pp_variable_spec fmt (v : variable) =
     let id, type_, dv = v.decl in
     Format.fprintf fmt "%s %a : %a%a@\n"
@@ -1432,6 +1463,7 @@ let pp_specification fmt (v : specification) =
     (pp_no_empty_list2 pp_definitions) fmt v.definitions;
     (* (pp_no_empty_list2 (fun fmt -> Format.fprintf fmt "axioms:@\n  @[%a@]@\n" pp_label_term)) v.lemmas *)
     (* (pp_no_empty_list2 (fun fmt -> Format.fprintf fmt "theorems:@\n  @[%a@]@\n" pp_label_term)) v.theorems *)
+    pp_fails fmt v.fails;
     (pp_no_empty_list2 pp_variable_spec) fmt v.variables;
     (* (pp_no_empty_list2 (fun fmt (id, l : lident * lident label_term list) ->
          Format.fprintf fmt "invariants:@\n  @[%a@]@\n"
@@ -1450,6 +1482,7 @@ let pp_specification fmt (v : specification) =
     List.is_empty v.lemmas         &&
     List.is_empty v.theorems       &&
     List.is_empty v.variables      &&
+    List.is_empty v.fails          &&
     List.is_empty v.invariants     &&
     List.is_empty v.effects        &&
     List.is_empty v.postconditions
@@ -1541,7 +1574,8 @@ let pp_argument fmt ((id, t, dv) : argument) =
 
 let pp_function fmt f =
   let k, fs, ret = match f.node with
-    | Entry f -> "entry", f, None
+    | Entry f         -> "entry",    f, None
+    | Getter (f, a)   -> "getter",   f, Some a
     | Function (f, a) -> "function", f, Some a
   in
   Format.fprintf fmt "%a %a %a%a {@\n@[<v 2>  %a%a@]@\n}@\n"

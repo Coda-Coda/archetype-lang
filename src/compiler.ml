@@ -2,6 +2,7 @@
 open Archetype
 open Core
 open Gen_transform
+open Gen_decompile
 
 exception Compiler_error
 exception E_arg
@@ -35,6 +36,26 @@ let output_tast (ast : Ast.ast) =
   then Format.printf "%a@." Ast.pp_ast ast
   else Format.printf "%a@." Printer_ast.pp_ast ast
 
+let output_tmdl (model : Model.model) =
+  if !Options.opt_raw
+  then Format.printf "%a@." Model.pp_model model
+  else Format.printf "%a@." Printer_model.pp_model model
+
+let output_ir (ir : Michelson.ir) =
+  if !Options.opt_raw
+  then Format.printf "%a@." Michelson.pp_ir ir
+  else Format.printf "%a@." Printer_michelson.pp_ir ir
+
+let output_dprogram (dp : Michelson.dprogram) =
+  if !Options.opt_raw
+  then Format.printf "%a@." Michelson.pp_dprogram dp
+  else Format.printf "%a@." Printer_michelson.pp_dprogram dp
+
+let output_michelson (m : Michelson.michelson) =
+  if !Options.opt_raw
+  then Format.printf "%a@." Michelson.pp_michelson m
+  else Format.printf "%a@." Printer_michelson.pp_michelson m
+
 let output (model : Model.model) =
   match !Options.opt_raw, !Options.opt_m with
   | true, _ -> Format.printf "%a@." Model.pp_model model
@@ -43,11 +64,36 @@ let output (model : Model.model) =
     begin
       let printer =
         match !Options.target with
-        | None         -> Printer_model.pp_model
+        | Debug        -> Printer_model.pp_model
         | Ligo         -> Printer_model_ligo.pp_model
         | LigoStorage  -> Printer_model_ligo.pp_storage
         | SmartPy      -> Printer_model_smartpy.pp_model
         | Scaml        -> Printer_model_scaml.pp_model
+        | Michelson
+        | MichelsonStorage -> begin
+            fun fmt model ->
+              let ir = Gen_michelson.to_ir model in
+              if !Options.opt_raw_ir
+              then Format.fprintf fmt "%a@." Michelson.pp_ir ir
+              else begin
+                if !Options.opt_ir
+                then Format.fprintf fmt "%a@." Printer_michelson.pp_ir ir
+                else begin
+                  match !Options.target with
+                  | MichelsonStorage -> Format.fprintf fmt "%a@." Printer_michelson.pp_data ir.storage_data
+                  | Michelson ->
+                    let michelson = Gen_michelson.to_michelson ir in
+                    if !Options.opt_raw_michelson
+                    then Format.fprintf fmt "%a@." Michelson.pp_michelson michelson
+                    else begin
+                      Format.fprintf fmt "# %a@.%a@."
+                        Printer_michelson.pp_data ir.storage_data
+                        Printer_michelson.pp_michelson michelson
+                    end
+                  | _ -> assert false
+                end
+              end
+          end
         | Whyml        ->
           fun fmt model ->
             let mlw = raise_if_error gen_output_error Gen_why3.to_whyml model in
@@ -89,25 +135,16 @@ let generate_target_pt (pt : ParseTree.archetype) : ParseTree.archetype =
 
 let generate_model            = Gen_model.to_model
 let generate_storage          = Gen_storage.generate_storage
-let remove_side_effect        = Gen_reduce.reduce
 let generate_api_storage      = Gen_api_storage.generate_api_storage
 
 let generate_target model =
 
   match !Options.target with
-  | None ->
-    model
-    |> raise_if_error post_model_error prune_properties
-    |> process_multi_keys
-    |> replace_declvar_by_letin
-    |> generate_api_storage
-    (* |> (fun (model : Model.model) -> Format.printf "%a@." (Printer_tools.pp_list " " Printer_model.pp_type) (Model.Utils.get_all_list_types model)) *)
-    |> output
-
   | Ligo
   | LigoStorage ->
     model
     |> replace_ligo_ident
+    |> getter_to_entry ~no_underscore:true
     |> process_multi_keys
     |> replace_col_by_key_for_ckfield
     |> process_asset_state
@@ -135,6 +172,7 @@ let generate_target model =
     |> assign_loop_label
     |> remove_letin_from_expr
     |> remove_fun_dotasset
+    |> eval_storage
     |> optimize
     |> generate_api_storage
     |> output
@@ -142,6 +180,7 @@ let generate_target model =
   | SmartPy ->
     model
     |> replace_col_by_key_for_ckfield
+    |> getter_to_entry
     |> process_multi_keys
     |> process_asset_state
     |> replace_assignfield_by_update
@@ -176,6 +215,7 @@ let generate_target model =
   | Scaml ->
     model
     |> remove_add_update
+    |> getter_to_entry
     |> process_multi_keys
     |> replace_update_by_set
     |> generate_storage
@@ -186,7 +226,46 @@ let generate_target model =
     |> remove_cmp_bool
     |> process_single_field_storage
     |> split_key_values
-    |> remove_side_effect
+    |> optimize
+    |> generate_api_storage
+    |> output
+
+  | Michelson
+  | MichelsonStorage ->
+    model
+    |> prune_formula
+    |> getter_to_entry ~extra:true
+    |> process_multi_keys
+    |> replace_col_by_key_for_ckfield
+    |> process_asset_state
+    |> replace_assignfield_by_update
+    |> remove_add_update ~with_force:true
+    |> merge_update
+    |> remove_assign_operator
+    |> process_internal_string
+    |> remove_rational
+    |> abs_tez
+    |> replace_date_duration_by_timestamp
+    |> eval_variable_initial_value
+    |> replace_dotassetfield_by_dot
+    |> generate_storage
+    |> replace_declvar_by_letin
+    |> remove_enum_matchwith
+    |> replace_lit_address_by_role
+    |> remove_label
+    |> flat_sequence
+    |> remove_cmp_bool
+    |> split_key_values
+    |> remove_duplicate_key
+    |> assign_loop_label
+    |> remove_letin_from_expr
+    |> remove_asset
+    |> remove_storage_field_in_function
+    |> remove_high_level_model
+    |> normalize_storage
+    |> remove_constant
+    |> remove_state
+    |> eval_storage
     |> optimize
     |> generate_api_storage
     |> output
@@ -194,6 +273,7 @@ let generate_target model =
   | Whyml ->
     model
     |> replace_whyml_ident
+    |> getter_to_entry
     |> process_multi_keys
     |> replace_assignfield_by_update
     |> process_asset_state
@@ -235,6 +315,15 @@ let generate_target model =
     |> filter_api_storage
     |> output
 
+  | Debug ->
+    model
+    |> raise_if_error post_model_error prune_properties
+    |> process_multi_keys
+    |> replace_declvar_by_letin
+    |> generate_api_storage
+    (* |> (fun (model : Model.model) -> Format.printf "%a@." (Printer_tools.pp_list "@\n" Printer_model.pp_type) (Model.Utils.get_all_fail_types model)) *)
+    |> output
+
   | _ -> ()
 
 (* -------------------------------------------------------------------- *)
@@ -246,7 +335,7 @@ let compile (filename, channel) =
   |> raise_if_error parse_error parse
   |> cont !Options.opt_pt output_pt
   |> raise_if_error parse_error preprocess_ext
-  |> cont !Options.opt_pt output_pt
+  |> cont !Options.opt_extpt output_pt
   |> raise_if_error parse_error generate_target_pt
   |> raise_if_error type_error type_
   |> cont !Options.opt_ast output_tast
@@ -259,7 +348,24 @@ let compile (filename, channel) =
   |> raise_if_error post_model_error (check_and_replace_init_caller ~doit:!Options.with_init_caller)
   |> raise_if_error post_model_error check_duplicated_keys_in_asset
   |> raise_if_error post_model_error check_asset_key
+  |> process_metadata
+  |> cont !Options.opt_mdl output_tmdl
   |> generate_target
+
+let decompile (filename, channel) =
+  let cont c p (m, e) = if c then (p m; raise Stop); (m, e) in
+
+  (filename, channel)
+  |> parse_michelson
+  |> cont !Options.opt_mic output_michelson
+  |> to_dir
+  |> cont !Options.opt_dir  output_dprogram
+  |> to_ir
+  |> cont !Options.opt_ir  output_ir
+  |> to_model
+  |> cont !Options.opt_mdl output_tmdl
+  |> to_archetype
+  |> output_pt
 
 let close dispose channel =
   if dispose then close_in channel
@@ -277,34 +383,44 @@ let print_version () =
 let main () =
   set_margin 300;
   let f = function
-    | "ligo"          -> Options.target := Ligo
-    | "ligo-storage"  -> Options.target := LigoStorage
-    | "smartpy"       -> Options.target := SmartPy
-    | "scaml"         -> Options.target := Scaml
-    | "whyml"         -> Options.target := Whyml
-    | "markdown"      -> Options.target := Markdown
+    | "ligo"              -> Options.target := Ligo
+    | "ligo-storage"      -> Options.target := LigoStorage
+    | "smartpy"           -> Options.target := SmartPy
+    | "scaml"             -> Options.target := Scaml
+    | "whyml"             -> Options.target := Whyml
+    | "michelson"         -> Options.target := Michelson
+    | "michelson-storage" -> Options.target := MichelsonStorage
+    | "markdown"          -> Options.target := Markdown
+    | "debug"             -> Options.target := Debug
     |  s ->
       Format.eprintf
         "Unknown target %s (--list-target to see available target)@." s;
       exit 2 in
 
+  let c   = Arg.Unit (fun _ -> f "michelson") in
+
   let arg_list = Arg.align [
+      "-c", c, "compile to michelson";
+      "--compile", c, " Same as -c";
+      "-d", Arg.Set Options.opt_decomp, "decompile from michelson";
+      "--decompile", Arg.Set Options.opt_decomp, " Same as -d";
       "-t", Arg.String f, "<lang> Transcode to <lang> language";
       "--target", Arg.String f, " Same as -t";
       "--list-target", Arg.Unit (fun _ -> Format.printf "target available:@\n  ligo@\n  scaml (beta)@\n  whyml@\n"; exit 0), " List available target languages";
       "-pt", Arg.Set Options.opt_pt, " Generate parse tree";
       "--parse-tree", Arg.Set Options.opt_pt, " Same as -pt";
-      "-ext", Arg.Set Options.opt_ext, " Process extensions";
-      "--extensions", Arg.Set Options.opt_ext, " Same as -ext";
       "-ast", Arg.Set Options.opt_ast, " Generate typed ast";
       "--typed-ast", Arg.Set Options.opt_ast, " Same as -ast";
-      "--typed", Arg.Set Options.opt_typed, " Display type in ast output";
-      "-ap", Arg.Set Options.opt_all_parenthesis, " Display all parenthesis in printer";
-      "--typed", Arg.Set Options.opt_all_parenthesis, " Same as -ap";
+      "-mdl", Arg.Set Options.opt_mdl, " Generate model";
+      "--model", Arg.Set Options.opt_mdl, " Same as -mdl";
       "-fp", Arg.String (fun s -> Options.opt_property_focused := s), " Focus property (with whyml target only)";
       "--focus-property", Arg.String (fun s -> Options.opt_property_focused := s), " Same as -fp";
       "-sci", Arg.String (fun s -> Options.opt_caller := s), " Set caller address for initialization";
       "--set-caller-init", Arg.String (fun s -> Options.opt_caller := s), " Same as -sci";
+      "-mu", Arg.String (fun s -> Options.opt_metadata_uri := s), " Set metadata uri";
+      "--metadata-uri", Arg.String (fun s -> Options.opt_metadata_uri := s), " Same as -mu";
+      "-ms", Arg.String (fun s -> Options.opt_metadata_storage := s), " Set metadata in storage";
+      "--metadata-storage", Arg.String (fun s -> Options.opt_metadata_storage := s), " Same as -ms";
       "-lsp", Arg.String (fun s -> match s with
           | "errors" -> Options.opt_lsp := true; Lsp.kind := Errors
           | "outline" -> Options.opt_lsp := true; Lsp.kind := Outline
@@ -326,13 +442,27 @@ let main () =
       "--raw", Arg.Set Options.opt_raw, " Same as -r";
       "-ry", Arg.Set Options.opt_raw_whytree, " Print raw model tree";
       "--raw-whytree", Arg.Set Options.opt_raw_whytree, " Same as -r";
-      "-json", Arg.Set Options.opt_json, " Print JSON format";
+      "-ir", Arg.Set Options.opt_ir, " Generate intermediate representation";
+      "--intermediate-representation", Arg.Set Options.opt_ir, " Same as -ir";
+      "-dir", Arg.Set Options.opt_dir, " Generate intermediate decompilation";
+      "--d-intermediate-representation", Arg.Set Options.opt_dir, " Same as -dir";
+      "-mi", Arg.Set Options.opt_mic, " Output michelson";
+      "-ri", Arg.Set Options.opt_raw_ir, " Print raw intermediate representation";
+      "--raw-ir", Arg.Set Options.opt_raw_ir, " Same as -ri";
+      "-rm", Arg.Set Options.opt_raw_michelson, " Print raw michelson";
+      "--raw-michelson", Arg.Set Options.opt_raw_michelson, " Same as -rm";
+      "--trace", Arg.Set Options.opt_trace, " Activate trace";
       "-V", Arg.String (fun s -> Options.add_vids s), "<id> process specication identifiers";
       "-v", Arg.Unit (fun () -> print_version ()), " Show version number and exit";
       "--version", Arg.Unit (fun () -> print_version ()), " Same as -v";
     ] in
   let arg_usage = String.concat "\n" [
-      "usage : archetype [-t <lang> | -pt | -ext | -tast | [-ws] [-sa] [-skv] [-nse] | -lsp <request>] [-r | -json] <file>";
+      "usage : archetype \
+       [-t <lang> | -pt | -ast | -mdl | -ir | -c | -lsp <request> ] \
+       [ -sci <caller_address> ] \
+       [ -mu <json_metatdata_uri> | -ms <path_to_json_metatdata> ] \
+       [ -r ] \
+       <file>";
       "";
       "Available options:";
     ]  in
@@ -349,9 +479,10 @@ let main () =
 
   try
     begin
-      match !Options.opt_lsp, !Options.opt_service with
-      | true, _ -> Lsp.process (filename, channel)
-      | _, true -> Services.process (filename, channel)
+      match !Options.opt_lsp, !Options.opt_service, !Options.opt_decomp with
+      | true, _, _ -> Lsp.process (filename, channel)
+      | _, true, _ -> Services.process (filename, channel)
+      | _, _, true -> decompile (filename, channel)
       | _ -> compile (filename, channel)
     end;
     close dispose channel

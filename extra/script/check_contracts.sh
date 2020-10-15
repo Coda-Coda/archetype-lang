@@ -25,6 +25,7 @@ escrow_penalty.arl \
 escrow_simple.arl \
 escrow_without_spec.arl \
 fa12.arl \
+fa12_inspector.arl \
 fizzy.arl \
 guarantee_fund.arl \
 health_care.arl \
@@ -34,6 +35,7 @@ miles_with_expiration_simple.arl \
 miles_with_expiration.arl \
 miles.arl \
 mini_dao.arl \
+mwe_fit.arl \
 mwe_medium.arl \
 oraclesetvalue.arl \
 perishable.arl \
@@ -70,6 +72,7 @@ escrow_penalty.arl \
 escrow_simple.arl \
 escrow_without_spec.arl \
 fa12.arl \
+fa12_inspector.arl \
 fizzy.arl \
 guarantee_fund.arl \
 health_care.arl \
@@ -79,6 +82,7 @@ miles_with_expiration_simple.arl \
 miles_with_expiration.arl \
 miles.arl \
 mini_dao.arl \
+mwe_fit.arl \
 mwe_medium.arl \
 oraclesetvalue.arl \
 perishable.arl \
@@ -100,6 +104,7 @@ auction_lazy.arl \
 auction_no_memory.arl \
 auction_zilliqa.arl \
 auction.arl \
+autocallable.arl \
 bond.arl \
 c3n.arl \
 certificate_generator.arl \
@@ -114,6 +119,7 @@ escrow_penalty.arl \
 escrow_simple.arl \
 escrow_without_spec.arl \
 fa12.arl \
+fa12_inspector.arl \
 fizzy.arl \
 guarantee_fund.arl \
 health_care.arl \
@@ -123,6 +129,7 @@ miles_with_expiration_simple.arl \
 miles_with_expiration.arl \
 miles.arl \
 mini_dao.arl \
+mwe_fit.arl \
 mwe_medium.arl \
 oraclesetvalue.arl \
 perishable.arl \
@@ -136,7 +143,6 @@ zero_coupon_bond.arl \
 "
 
 REMAINED_VERIF_CONTRACTS="\
-autocallable.arl \
 "
 
 RET=0

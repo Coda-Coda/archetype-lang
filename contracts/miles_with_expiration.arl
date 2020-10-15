@@ -40,7 +40,6 @@ entry consume (a : address, quantity : int) {
     assert p1 {
       remainder = 0
     }
-
     postcondition p2 {
       mile.sum(the.amount) = before.mile.sum(the.amount) - quantity
       invariant for loop {
@@ -48,20 +47,16 @@ entry consume (a : address, quantity : int) {
         before.mile.sum(the.amount) = mile.sum(the.amount) + quantity - remainder
       }
     }
-
     postcondition p3 {
       forall m in removed.mile, m.expiration >= now
       invariant for loop {
         removed.mile.subsetof(by_expiration)
       }
     }
-
     postcondition p4 {
       added.mile.isempty()
-      invariant for loop {
-        added.mile.isempty()
-      }
     }
+
   }
 
   called by admin
@@ -71,7 +66,7 @@ entry consume (a : address, quantity : int) {
   }
 
   effect {
-    var by_expiration = owner[a].miles.sort(expiration).select(the.expiration > now);
+    var by_expiration = owner[a].miles.sort(expiration).select(the.expiration >= now);
     dorequire (by_expiration.sum(the.amount) >= quantity, "NotEnoughMiles");
     var remainder = quantity;
     for : loop m in by_expiration do
@@ -115,10 +110,10 @@ entry clear_expired () {
   }
 }
 
-security {
+/*security {
   (*  this ensures that any mile was added with the 'add' entry *)
   g1 : only_by_role (anyentry, admin);
   g2 : only_in_entry (remove (mile), [consume or clear_expired]);
   g3 : not_in_entry (add (mile), consume);
   g4 : no_storage_fail (add)
-}
+}*/

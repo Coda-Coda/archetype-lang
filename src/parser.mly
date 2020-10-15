@@ -43,7 +43,6 @@
 %token AT_REMOVE
 %token AT_UPDATE
 %token BEFORE
-%token BREAK
 %token BUT
 %token BY
 %token CALL
@@ -66,7 +65,6 @@
 %token END
 %token ENTRY
 %token ENTRYPOINT
-%token ENTRYSIG
 %token ENUM
 %token EOF
 %token EQUAL
@@ -75,11 +73,13 @@
 %token EXTENSION
 %token FAIL
 %token FAILIF
+%token FAILS
 %token FALSE
 %token FOR
 %token FORALL
 %token FROM
 %token FUNCTION
+%token GETTER
 %token GREATER
 %token GREATEREQUAL
 %token IDENTIFIED
@@ -157,6 +157,7 @@
 %token WHEN
 %token WHILE
 %token WITH
+%token XOR
 
 %token INVALID_EXPR
 %token INVALID_DECL
@@ -189,7 +190,7 @@
 %right IMPLY
 %nonassoc EQUIV
 
-%left OR
+%left OR XOR
 %left AND
 
 %nonassoc EQUAL NEQUAL
@@ -274,7 +275,13 @@ declaration_r:
  | x=dextension         { x }
  | x=namespace          { x }
  | x=function_decl      { x }
+ | x=getter_decl        { x }
  | x=specification_decl { x }
+ | x=specasset          { x }
+ | x=specfun            { x }
+ | x=specentry          { x }
+ | x=specgetter         { x }
+ | x=specvariable       { x }
  | x=security_decl      { x }
  | INVALID_DECL         { Dinvalid }
 
@@ -330,11 +337,12 @@ namespace:
      r=function_return? LBRACE b=fun_body RBRACE {
   let (s, e) = b in
   {
-    name  = id;
-    args  = xs;
-    ret_t = r;
-    spec = s;
-    body  = e;
+    name   = id;
+    args   = xs;
+    ret_t  = r;
+    spec   = s;
+    body   = e;
+    getter = false;
   }
 }
 
@@ -346,8 +354,36 @@ function_decl:
 | f=function_gen
     { Dfunction f }
 
+%inline getter_gen:
+ | GETTER id=ident xs=function_args
+     r=function_return? LBRACE b=fun_body RBRACE {
+  let (s, e) = b in
+  {
+    name   = id;
+    args   = xs;
+    ret_t  = r;
+    spec   = s;
+    body   = e;
+    getter = true;
+  }
+}
+
+getter_decl:
+| f=getter_gen
+    { Dfunction f }
+
 %inline spec_predicate:
 | PREDICATE id=ident xs=function_args e=braced(expr) { Vpredicate (id, xs, e) }
+
+%inline spec_fail_item:
+| lbl=ident WITH LPAREN arg=ident COLON t=type_t RPAREN COLON f=expr SEMI_COLON
+{ (lbl, arg, t, f) }
+
+%inline spec_fail_items:
+| xs=spec_fail_item+ { xs }
+
+%inline spec_fails:
+| FAILS xs=braced(spec_fail_items) { Vfails xs }
 
 %inline spec_definition:
 | DEFINITION id=ident LBRACE a=ident COLON t=type_t PIPE e=expr RBRACE { Vdefinition (id, t, a, e) }
@@ -383,30 +419,59 @@ function_decl:
 spec_items:
 | ds=loc(spec_definition)*
   ps=loc(spec_predicate)*
+  fs=loc(spec_fails)*
   vs=loc(spec_variable)*
   es=loc(spec_effect)*
   bs=loc(spec_assert)*
   ss=loc(spec_postcondition)*
   cs=loc(spec_contract_invariant)*
-   { ds @ ps @ vs @ es @ bs @ ss @ cs }
+   { ds @ ps @ fs @ vs @ es @ bs @ ss @ cs }
 
-%inline specification:
-| SPECIFICATION exts=option(extensions) LBRACE
-    xs=spec_items RBRACE
-        { (xs, exts) }
+%inline specification_unloc_c:
+| xs=spec_items { xs }
 
-| SPECIFICATION exts=option(extensions) LBRACE
-    xs=label_exprs_non_empty RBRACE
+| xs=label_exprs_non_empty
         { let ll = List.map (fun x ->
             let loc, (lbl, e) = Location.deloc x in
             mkloc loc (Vpostcondition (lbl, e, [], [], None))) xs in
-            (ll, exts) }
+            ll }
+
+%inline specification_with_exts_unloc_c:
+| x=specification_unloc_c { (x, None) }
+
+%inline specification_c:
+| x=loc(specification_with_exts_unloc_c) { x }
+
+%inline specification:
+| SPECIFICATION exts=option(extensions) LBRACE xs=specification_unloc_c RBRACE
+    { (xs, exts) }
 
 specification_fun:
 | x=loc(specification) { x }
 
 specification_decl:
 | x=loc(specification)      { Dspecification x }
+
+specasset:
+| SPECIFICATION ASSET id=ident LBRACE xs=label_exprs_non_empty RBRACE
+{ Dspecasset (id, xs) }
+
+specfun_gen(X):
+| SPECIFICATION X id=ident args=function_args LBRACE s=specification_c RBRACE
+{ (id, args, s) }
+
+specfun:
+| x=specfun_gen(FUNCTION) { let id, args, s = x in Dspecfun (SKfunction, id, args, s) }
+
+specentry:
+| x=specfun_gen(ENTRY)    { let id, args, s = x in Dspecfun (SKentry, id, args, s) }
+
+specgetter:
+| x=specfun_gen(GETTER)    { let id, args, s = x in Dspecfun (SKgetter, id, args, s) }
+
+specvariable:
+| SPECIFICATION VARIABLE id=ident LBRACE xs=label_exprs_non_empty RBRACE
+{ Dspecvariable (id, xs) }
 
 %inline security_item_unloc:
 | lbl=ident COLON id=ident args=security_args
@@ -470,7 +535,7 @@ type_s_unloc:
 | LIST        LESS x=type_t GREATER                { Tlist x           }
 | SET         LESS x=type_t GREATER                { Tset x            }
 | MAP         LESS k=type_t COMMA v=type_s GREATER { Tmap (k, v)       }
-| ENTRYSIG    LESS x=type_t GREATER                { Tentrysig x       }
+| CONTRACT    LESS x=type_t GREATER                { Tcontract x       }
 | x=paren(type_r)                                  { x                 }
 
 %inline type_tuples:
@@ -723,9 +788,6 @@ expr_r:
  | LABEL id=ident
      { Elabel id }
 
- | BREAK
-     { Ebreak }
-
  | FOR lbl=colon_ident x=for_ident IN y=expr DO body=block DONE
      { Efor (lbl, x, y, body) }
 
@@ -848,6 +910,9 @@ simple_expr_r:
  | LBRACKET e=expr RBRACKET
      { Earray (split_seq e) }
 
+ | LBRACE e=simple_expr WITH xs=separated_list(SEMI_COLON, recupdate_item) RBRACE
+     { Erecupdate (e, xs) }
+
  | LBRACE xs=separated_list(SEMI_COLON, record_item) RBRACE
      { Erecord xs }
 
@@ -924,6 +989,9 @@ record_item:
  | id=ident op=assignment_operator_record e=simple_expr
    { (Some (op, id), e) }
 
+recupdate_item:
+ | id=ident EQUAL e=simple_expr { (id, e) }
+
 %inline quantifier:
  | FORALL { Forall }
  | EXISTS { Exists }
@@ -931,6 +999,7 @@ record_item:
 %inline logical_operator:
  | AND   { And }
  | OR    { Or }
+ | XOR   { Xor }
  | IMPLY { Imply }
  | EQUIV { Equiv }
 
@@ -953,7 +1022,6 @@ record_item:
  | PERCENT { Modulo }
 
 %inline unary_operator:
- | PLUS    { Uplus }
  | MINUS   { Uminus }
  | NOT     { Not }
 

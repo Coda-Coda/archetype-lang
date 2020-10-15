@@ -74,8 +74,8 @@ let rec pp_ptyp fmt (t : ptyp) =
       (pp_list " * " pp_ptyp) ts
   | Toperation ->
     Format.fprintf fmt "operation"
-  | Tentrysig et ->
-    Format.fprintf fmt "entrysig<%a>" pp_ptyp et
+  | Tcontract et ->
+    Format.fprintf fmt "contract<%a>" pp_ptyp et
   | Ttrace t ->
     Format.fprintf fmt "%a"
       pp_trtyp t
@@ -108,6 +108,7 @@ let pp_bval fmt (bval : bval) =
 let pp_logical_operator fmt = function
   | And   -> pp_str fmt "and"
   | Or    -> pp_str fmt "or"
+  | Xor   -> pp_str fmt "xor"
   | Imply -> pp_str fmt "->"
   | Equiv -> pp_str fmt "<->"
 
@@ -128,7 +129,6 @@ let pp_arithmetic_operator fmt = function
   | Modulo -> pp_str fmt "%"
 
 let pp_unary_arithmetic_operator fmt = function
-  | Uplus  -> pp_str fmt "+"
   | Uminus -> pp_str fmt "-"
 
 let pp_assignment_operator fmt = function
@@ -187,6 +187,7 @@ let to_const = function
   | Cresult         -> "result"
   | Cchainid        -> "chain_id"
   | Coperations     -> "operations"
+  | Cmetadata       -> "metadata"
   (* function *)
   | Cadd            -> "add"
   | Caddupdate      -> "addupdate"
@@ -226,6 +227,8 @@ let to_const = function
   | Ctail           -> "tail"
   | Cabs            -> "abs"
   | Cprepend        -> "prepend"
+  | Cheadtail       -> "head_tail"
+  | Creverse        -> "reverse"
   (* map *)
   | Cmput           -> "put"
   | Cmremove        -> "remove"
@@ -364,6 +367,14 @@ let rec pp_pterm fmt (pterm : pterm) =
           (pp_list "; " pp_pterm) l
       in
       (pp_no_paren pp) fmt l
+
+    | Precupdate (e, l) ->
+      let pp fmt (e, l) =
+        Format.fprintf fmt "{%a with %a}"
+          pp_pterm e
+          (pp_list "; " (fun fmt (id, v) -> Format.fprintf fmt "%a = %a" pp_id id pp_pterm v)) l
+      in
+      (pp_no_paren pp) fmt (e, l)
 
     | Pletin (id, init, t, body, otherwise) ->
       let pp fmt (id, init, t, body) =
@@ -651,12 +662,6 @@ let rec pp_instruction fmt (i : instruction) =
       in
       (pp_with_paren pp) fmt (value, tr)
 
-    | Ibreak ->
-      let pp fmt () =
-        pp_str fmt "break"
-      in
-      (pp_with_paren pp) fmt ()
-
     | Icall (meth, kind, args) ->
       let pp fmt (meth, kind, args) =
         Format.fprintf fmt "%a%a(%a)"
@@ -698,6 +703,7 @@ let pp_specification fmt (v : lident specification) =
   let empty = List.is_empty v.predicates
               && List.is_empty v.definitions
               && List.is_empty v.lemmas
+              && List.is_empty v.fails
               && List.is_empty v.theorems
               && List.is_empty v.variables
               && List.is_empty v.invariants
@@ -718,6 +724,14 @@ let pp_specification fmt (v : lident specification) =
       pp_ptyp d.typ
       pp_pterm d.body
   in
+  let pp_fail fmt (f : lident fail) =
+    Format.fprintf fmt "%a with (%a : %a):@\n  @[%a@];@\n"
+      pp_id f.label
+      pp_id f.arg
+      pp_ptyp f.atype
+      pp_pterm f.formula
+  in
+  let pp_fails fmt l = if List.is_empty l then () else Format.fprintf fmt "fails {@\n  @[%a@]@\n}" (pp_list "@\n" pp_fail) l in
   let pp_variable_spec fmt (v : lident variable) =
     let decl = v.decl in
     Format.fprintf fmt "variable %a%a%a"
@@ -753,9 +767,10 @@ let pp_specification fmt (v : lident specification) =
   if empty
   then ()
   else
-    Format.fprintf fmt "specification {@\n  @[%a%a%a%a%a%a%a%a%a@]@\n}@\n"
+    Format.fprintf fmt "specification {@\n  @[%a%a%a%a%a%a%a%a%a%a@]@\n}@\n"
       (pp_no_empty_list2 pp_predicate) v.predicates
       (pp_no_empty_list2 pp_definitions) v.definitions
+      pp_fails v.fails
       (pp_no_empty_list2 (fun fmt -> Format.fprintf fmt "axioms:@\n  @[%a@]@\n" pp_label_term)) v.lemmas
       (pp_no_empty_list2 (fun fmt -> Format.fprintf fmt "theorems:@\n  @[%a@]@\n" pp_label_term)) v.theorems
       (pp_no_empty_list2 pp_variable_spec) v.variables
@@ -945,7 +960,8 @@ let pp_fun_args fmt args =
     (pp_list " " pp_fun_ident_typ) args
 
 let pp_function fmt (f : function_) =
-  Format.fprintf fmt "function %a%a : %a =@\n  @[%a%a@]@\n"
+  Format.fprintf fmt "%s %a%a : %a =@\n  @[%a%a@]@\n"
+    (match f.kind with | FKfunction -> "function" | FKgetter -> "getter")
     pp_id f.name
     pp_fun_args f.args
     pp_ptyp f.return

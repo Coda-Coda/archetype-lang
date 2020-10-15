@@ -58,7 +58,7 @@ type ptyp =
   | Ttuple of ptyp list
   | Toption of ptyp
   | Toperation
-  | Tentrysig of ptyp
+  | Tcontract of ptyp
   | Ttrace of trtyp
 [@@deriving show {with_path = false}]
 
@@ -69,6 +69,7 @@ type type_ = ptyp (* type of pterm *)
 type logical_operator =
   | And
   | Or
+  | Xor
   | Imply
   | Equiv
 [@@deriving show {with_path = false}]
@@ -102,7 +103,6 @@ type arithmetic_operator =
 [@@deriving show {with_path = false}]
 
 type unary_arithmetic_operator =
-  | Uplus
   | Uminus
 [@@deriving show {with_path = false}]
 
@@ -133,6 +133,7 @@ type const =
   | Cresult
   | Cchainid
   | Coperations
+  | Cmetadata
   (* function *)
   | Cadd
   | Caddupdate
@@ -172,6 +173,8 @@ type const =
   | Ctail
   | Cabs
   | Cprepend
+  | Cheadtail
+  | Creverse
   (* map *)
   | Cmput
   | Cmremove
@@ -313,6 +316,7 @@ type 'id term_node  =
   | Parith of arithmetic_operator * 'id term_gen * 'id term_gen
   | Puarith of unary_arithmetic_operator * 'id term_gen
   | Precord of 'id term_gen list
+  | Precupdate of 'id term_gen * ('id * 'id term_gen) list
   | Pletin of 'id * 'id term_gen * ptyp option * 'id term_gen * 'id term_gen option (* ident * init * type * body * otherwise *)
   | Pdeclvar of 'id * ptyp option * 'id term_gen
   | Pvar of var_temporality * vset * 'id
@@ -377,7 +381,6 @@ and 'id instruction_node =
   | Iassign of (assignment_operator * ptyp * 'id lvalue_gen * 'id term_gen)         (* $2 assignment_operator $3 *)
   | Irequire of (bool * 'id term_gen * 'id term_gen)                                               (* $1 ? require : failif *)
   | Itransfer of ('id term_gen * 'id transfer_t)
-  | Ibreak
   | Icall of ('id term_gen option * 'id call_kind * ('id term_arg) list)
   | Ireturn of 'id term_gen
   | Ilabel of 'id
@@ -441,6 +444,15 @@ type 'id definition = {
 }
 [@@deriving show {with_path = false}]
 
+type 'id fail = {
+  label: 'id;
+  arg: 'id;
+  atype: type_;
+  formula: 'id term_gen;
+  loc: Location.t [@opaque];
+}
+[@@deriving show {with_path = false}]
+
 type 'id invariant = {
   label: 'id;
   formulas: 'id term_gen list;
@@ -467,6 +479,7 @@ type 'id assert_ = {
 type 'id specification = {
   predicates  : 'id predicate list;
   definitions : 'id definition list;
+  fails       : 'id fail list;
   lemmas      : 'id label_term list;
   theorems    : 'id label_term list;
   variables   : 'id variable list;
@@ -522,8 +535,14 @@ type security = {
 }
 [@@deriving show {with_path = false}]
 
+type fun_kind =
+  | FKfunction
+  | FKgetter
+[@@deriving show {with_path = false}]
+
 type 'id function_struct = {
   name          : 'id;
+  kind          : fun_kind;
   args          : ('id decl_gen) list;
   body          : 'id instruction_gen;
   specification : 'id specification option;
@@ -687,6 +706,9 @@ let mk_predicate ?(args = []) ?(loc = Location.dummy) name body =
 let mk_definition ?(loc = Location.dummy) name typ var body =
   { name; typ; var; body; loc }
 
+let mk_fail ?(loc = Location.dummy) label arg atype formula =
+  { label; arg; atype; formula; loc }
+
 let mk_invariant ?(formulas = []) label =
   { label; formulas }
 
@@ -696,11 +718,11 @@ let mk_postcondition ?(invariants = []) ?(uses = []) name formula =
 let mk_assert ?(invariants = []) ?(uses = []) name label formula =
   { name; label; formula; invariants; uses }
 
-let mk_specification ?(predicates = []) ?(definitions = []) ?(lemmas = []) ?(theorems = []) ?(variables = []) ?(invariants = []) ?effect ?(specs = []) ?(asserts = []) ?(loc = Location.dummy) () =
-  { predicates; definitions; lemmas; theorems; variables; invariants; effect; specs; asserts; loc}
+let mk_specification ?(predicates = []) ?(definitions = []) ?(fails = []) ?(lemmas = []) ?(theorems = []) ?(variables = []) ?(invariants = []) ?effect ?(specs = []) ?(asserts = []) ?(loc = Location.dummy) () =
+  { predicates; definitions; fails; lemmas; theorems; variables; invariants; effect; specs; asserts; loc}
 
-let mk_function_struct ?(args = []) ?specification ?(loc = Location.dummy) name body return =
-  { name; args; body; specification; return; loc }
+let mk_function_struct ?(args = []) ?specification ?(loc = Location.dummy) name kind body return =
+  { name; kind; args; body; specification; return; loc }
 
 let mk_transition ?on ?(trs = []) from =
   { from; on; trs }
@@ -741,6 +763,7 @@ module Utils : sig
   val is_variable               : ast -> lident -> bool
   val is_asset                  : ast -> lident -> bool
   val is_enum_value             : ast -> lident -> bool
+  val is_definition             : ast -> lident -> bool
   val get_var_type              : ast -> lident -> type_
   val get_enum_name             : lident enum_struct -> lident
 
@@ -764,6 +787,24 @@ end = struct
   let get_variables ast = List.fold_right (fun (x : 'id decl_) accu -> match x with Dvariable x ->  x::accu | _ -> accu ) ast.decls []
   let get_assets ast    = List.fold_right (fun (x : 'id decl_) accu -> match x with Dasset x    ->  x::accu | _ -> accu ) ast.decls []
   let get_enums ast     = List.fold_right (fun (x : 'id decl_) accu -> match x with Denum x     ->  x::accu | _ -> accu ) ast.decls []
+
+  let get_definitions (ast : ast) =
+    let for_spec s = s.definitions in
+    let for_spec_accu accu s =
+      accu @ for_spec s
+    in
+    let for_spec_accu_opt accu s =
+      Option.map_dfl (fun x -> for_spec_accu accu x) accu s
+    in
+    []
+    |> (fun acc -> List.fold_left (fun accu (fu : 'id fun_) ->
+        let s =
+          match fu with
+          | Ffunction fs -> fs.specification
+          | Ftransaction ts -> ts.specification
+        in
+        for_spec_accu_opt accu s) acc ast.funs)
+    |> fun acc -> List.fold_left (fun accu s -> for_spec_accu accu s) acc ast.specifications
 
   let get_asset_opt ast asset_name : asset option =
     let id = unloc asset_name in
@@ -835,6 +876,13 @@ end = struct
         else accu
     ) None (get_enums ast)
 
+  let get_definition ast ident =
+    List.fold_left (fun accu (x : 'id definition) ->
+        if (Location.unloc x.name) = (Location.unloc ident)
+        then Some x
+        else accu
+      ) None (get_definitions ast)
+
   let get_variable_opt ast ident : 'id variable option =
     List.fold_left (
       fun accu (x : 'id variable) ->
@@ -850,6 +898,11 @@ end = struct
 
   let is_asset ast ident =
     match get_asset_opt ast ident with
+    | Some _ -> true
+    | None   -> false
+
+  let is_definition ast ident =
+    match get_definition ast ident with
     | Some _ -> true
     | None   -> false
 

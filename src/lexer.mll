@@ -27,7 +27,6 @@
       "asset"               , ASSET          ;
       "at"                  , AT             ;
       "before"              , BEFORE         ;
-      "break"               , BREAK          ;
       "but"                 , BUT            ;
       "by"                  , BY             ;
       "call"                , CALL           ;
@@ -45,17 +44,18 @@
       "end"                 , END            ;
       "entry"               , ENTRY          ;
       "entrypoint"          , ENTRYPOINT     ;
-      "entrysig"            , ENTRYSIG       ;
       "enum"                , ENUM           ;
       "exists"              , EXISTS         ;
       "extension"           , EXTENSION      ;
       "fail"                , FAIL           ;
       "failif"              , FAILIF         ;
+      "fails"               , FAILS          ;
       "false"               , FALSE          ;
       "for"                 , FOR            ;
       "forall"              , FORALL         ;
       "from"                , FROM           ;
       "function"            , FUNCTION       ;
+      "getter"              , GETTER         ;
       "identified"          , IDENTIFIED     ;
       "if"                  , IF             ;
       "in"                  , IN             ;
@@ -106,6 +106,7 @@
       "when"                , WHEN           ;
       "while"               , WHILE          ;
       "with"                , WITH           ;
+      "xor"                 , XOR           ;
     ]
 
   let () =

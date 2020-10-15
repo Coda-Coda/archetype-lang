@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2020-10-01
+### Added
+ - Add contract metadata tzip-16 (https://gitlab.com/tzip/tzip/-/blob/master/proposals/tzip-16/tzip-16.md)
+
+## [1.2.0] - 2020-09-15
+### Added
+ - Michelson backend
+ - specification declaration for asset, variable, entry and function
+ - `fails` section in specification declaration
+ - `xor` operator
+ - `head_tail` and `reverse` builtin functions for list
+ - `getter` entry
+
+### Changed
+ - remove `set_` and `map_` prefix for container builtins
+ - replace `entrysig` by `contract`
+
 ## [1.1.2] - 2020-08-13
 ### Changed
  - Refactoring of whyml generation

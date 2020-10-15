@@ -28,6 +28,7 @@ let e_imply         =  (40,  Right)    (* ->  *)
 let e_equiv         =  (50,  NonAssoc) (* <-> *)
 let e_and           =  (60,  Left)     (* and *)
 let e_or            =  (70,  Left)     (* or  *)
+let e_xor           =  (70,  Left)     (* xor *)
 let e_equal         =  (80,  NonAssoc) (* =   *)
 let e_nequal        =  (80,  NonAssoc) (* <>  *)
 let e_gt            =  (90,  Left)     (* >   *)
@@ -56,6 +57,7 @@ let get_prec_from_operator (op : operator) =
   match op with
   | Logical And     -> e_and
   | Logical Or      -> e_or
+  | Logical Xor     -> e_xor
   | Logical Imply   -> e_imply
   | Logical Equiv   -> e_equiv
   | Cmp Equal       -> e_equal
@@ -70,7 +72,6 @@ let get_prec_from_operator (op : operator) =
   | Arith DivRat    -> e_divrat
   | Arith DivEuc    -> e_diveuc
   | Arith Modulo    -> e_modulo
-  | Unary Uplus     -> e_plus
   | Unary Uminus    -> e_minus
   | Unary Not       -> e_not
 
@@ -143,9 +144,9 @@ let rec pp_type outer pos fmt e =
       pp_type_default k
       pp_type_default v
 
-  | Tentrysig t ->
+  | Tcontract t ->
     Format.fprintf fmt
-      "entrysig<%a>"
+      "contract<%a>"
       pp_type_default t
 
   | Tkeyof t ->
@@ -161,6 +162,7 @@ let logical_operator_to_str op =
   match op with
   | And   -> "and"
   | Or    -> "or"
+  | Xor   -> "xor"
   | Imply -> "->"
   | Equiv -> "<->"
 
@@ -184,7 +186,6 @@ let arithmetic_operator_to_str op =
 
 let unary_operator_to_str op =
   match op with
-  | Uplus   -> "+"
   | Uminus  -> "-"
   | Not     -> "not"
 
@@ -475,14 +476,17 @@ let rec pp_expr outer pos fmt a =
     in
     (maybe_paren outer e_default pos pp) fmt (x, xs)
 
+  | Erecupdate (e, l) ->
 
-  | Ebreak ->
-
-    let pp fmt =
-      Format.fprintf fmt "break"
+    let pp fmt (e, l) =
+      Format.fprintf fmt "{%a with %a}"
+        (pp_expr e_default PNone) e
+        (pp_list "; " (fun fmt (id, v) ->
+             Format.fprintf fmt "%a = (%a)"
+               pp_id id
+               (pp_expr e_equal PRight) v)) l
     in
-    pp fmt
-
+    (maybe_paren outer e_default pos pp) fmt (e, l)
 
   | Efor (lbl, fid, expr, body) ->
 
@@ -615,7 +619,7 @@ let rec pp_expr outer pos fmt a =
     in
     (maybe_paren outer e_colon pos pp) fmt (t, a, b)
 
-  | Eself x -> Format.fprintf fmt "self.%a" pp_id x
+  | Eself x -> Format.fprintf fmt "(self.%a)" pp_id x
 
   | Eany -> Format.fprintf fmt "any"
 
@@ -817,12 +821,16 @@ let pp_use fmt u =
   (pp_do_if (match u with | [] -> false | _ -> true) (fun fmt -> Format.fprintf fmt "@\n  @[use: %a;@]" (pp_list "@ " pp_id))) fmt u
 
 let pp_pc_ci fmt (s, id, f, is, u) =
-  Format.fprintf fmt "%a %a {@\n  @[%a@]%a%a@\n}"
-    pp_str s
-    pp_id id
-    (pp_expr e_default PNone) f
-    pp_invariants is
-    pp_use u
+  match s, is, u with
+  | "", [], [] -> Format.fprintf fmt "%a: %a@\n" pp_id id (pp_expr e_default PNone) f
+  | _  -> begin
+      Format.fprintf fmt "%a %a {@\n  @[%a@]%a%a@\n}"
+        pp_str s
+        pp_id id
+        (pp_expr e_default PNone) f
+        pp_invariants is
+        pp_use u
+    end
 
 let pp_postcondition fmt (id, f, is, u) =
   pp_pc_ci fmt ("postcondition", id, f, is, u)
@@ -851,6 +859,20 @@ let pp_specification_item fmt = function
       pp_type typ
       (pp_expr e_default PNone) body
 
+  (* fails {
+     x with (s : string) :
+      true;
+     } *)
+  | Vfails l ->
+    Format.fprintf fmt "fails {@\n  @[%a@]@\n}"
+      (pp_list "" (fun fmt (lbl, arg, t, f) ->
+           Format.fprintf fmt "%a with (%a : %a):@\n  %a;"
+             pp_id lbl
+             pp_id arg
+             pp_type t
+             (pp_expr e_default PNone) f
+         )) l
+
   | Vvariable (id, typ, dv) ->
     Format.fprintf fmt "variable %a : %a%a"
       pp_id id
@@ -875,7 +897,8 @@ let pp_specification_item fmt = function
 let pp_specification_items = pp_list "@\n@\n" pp_specification_item
 
 let pp_function fmt (f : s_function) =
-  Format.fprintf fmt "function %a %a%a %a@\n"
+  Format.fprintf fmt "%s %a %a%a %a@\n"
+    (if f.getter then "getter" else "function")
     pp_id f.name
     pp_fun_args f.args
     (pp_option (pp_prefix " : " pp_type)) f.ret_t
@@ -982,11 +1005,11 @@ let pp_entry_properties fmt (props : entry_properties) =
       s1
       pp_extensions exts
       (pp_list ";@\n" (fun fmt (id, e, f) ->
-         Format.fprintf fmt "%a%a: %a"
-           pp_id id
-           (pp_option (fun fmt x -> Format.fprintf fmt " %s %a" s2 (pp_expr e_default PNone) x)) f
-           (pp_expr e_default PNone) e
-      )) l
+           Format.fprintf fmt "%a%a: %a"
+             pp_id id
+             (pp_option (fun fmt x -> Format.fprintf fmt " %s %a" s2 (pp_expr e_default PNone) x)) f
+             (pp_expr e_default PNone) e
+         )) l
   in
   pp_option (pp_rf "require" "otherwise") fmt props.require;
   pp_option (pp_rf "failif" "with") fmt props.failif;
@@ -1104,6 +1127,23 @@ let rec pp_declaration fmt { pldesc = e; _ } =
   | Dspecification v ->
     let items, exts = v |> unloc in
     pp_spec fmt (items, exts)
+
+  | Dspecasset (id, l) ->
+    Format.fprintf fmt "specification asset %a {@\n  @[%a@]@\n}"
+      pp_id id
+      (pp_list "@\n" (fun fmt x -> let (id, x) = unloc x in Format.fprintf fmt "%a: %a;" pp_id id pp_simple_expr x)) l
+
+  | Dspecfun (sfk, id, args, s) ->
+    Format.fprintf fmt "specification %s %a%a {@\n  @[%a@]@\n}"
+      (match sfk with | SKentry -> "entry"  | SKgetter -> "getter"  | SKfunction -> "function")
+      pp_id id
+      pp_fun_args args
+      pp_specification_items (s |> unloc |> fst |> List.map unloc)
+
+  | Dspecvariable (id, l) ->
+    Format.fprintf fmt "specification variable %a {@\n  @[%a@]@\n}"
+      pp_id id
+      (pp_list "@\n" (fun fmt x -> let (id, x) = unloc x in Format.fprintf fmt "%a: %a;" pp_id id pp_simple_expr x)) l
 
   | Dsecurity v ->
     let items, exts = v |> unloc in

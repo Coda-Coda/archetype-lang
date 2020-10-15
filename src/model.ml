@@ -66,10 +66,11 @@ type type_ =
   | Tset of type_
   | Tmap of bool * type_ * type_
   | Trecord of lident
+  | Tlambda of type_ * type_
   | Tunit
   | Tstorage
   | Toperation
-  | Tentrysig of type_
+  | Tcontract of type_
   | Tprog of type_
   | Tvset of vset * type_
   | Ttrace of trtyp
@@ -141,6 +142,7 @@ type 'term var_kind_gen =
   | Vstorevar
   | Vstorecol
   | Venumval
+  | Vdefinition
   | Vlocal
   | Vparam
   | Vfield
@@ -148,10 +150,24 @@ type 'term var_kind_gen =
   | Vthe
 [@@deriving show {with_path = false}]
 
+type temp =
+  | Tbefore
+  | Tat of ident
+  | Tnone
+[@@deriving show {with_path = false}]
+
+type delta =
+  | Dadded
+  | Dremoved
+  | Dunmoved
+  | Dnone
+[@@deriving show {with_path = false}]
+
 type 'term container_kind_gen =
-  | CKcoll
+  | CKcoll  of temp * delta
   | CKview  of 'term
-  | CKfield of (ident * ident * 'term)
+  | CKfield of (ident * ident * 'term * temp * delta)
+  | CKdef   of ident
 [@@deriving show {with_path = false}]
 
 type 'term iter_container_kind_gen =
@@ -213,6 +229,7 @@ type ('id, 'term) mterm_node  =
   (* control expression *)
   | Mexprif           of 'term * 'term * 'term
   | Mexprmatchwith    of 'term * ('id pattern_gen * 'term) list
+  | Mmatchsome        of 'term * 'term * ident * 'term
   (* composite type constructors *)
   | Mnone
   | Msome             of 'term
@@ -226,8 +243,6 @@ type ('id, 'term) mterm_node  =
   (* access *)
   | Mdot              of 'term * 'id
   | Mdotassetfield    of 'id * 'term * 'id
-  | Mdotcontract      of 'term * 'id
-  | Maccestuple       of 'term * Core.big_int
   (* comparison operators *)
   | Mequal            of type_ * 'term * 'term
   | Mnequal           of type_ * 'term * 'term
@@ -239,6 +254,7 @@ type ('id, 'term) mterm_node  =
   (* arithmetic operators *)
   | Mand              of 'term * 'term
   | Mor               of 'term * 'term
+  | Mxor              of 'term * 'term
   | Mnot              of 'term
   | Mplus             of 'term * 'term
   | Mminus            of 'term * 'term
@@ -246,7 +262,6 @@ type ('id, 'term) mterm_node  =
   | Mdivrat           of 'term * 'term
   | Mdiveuc           of 'term * 'term
   | Mmodulo           of 'term * 'term
-  | Muplus            of 'term
   | Muminus           of 'term
   (* asset api effect *)
   | Maddasset         of ident * 'term
@@ -259,6 +274,7 @@ type ('id, 'term) mterm_node  =
   | Mset              of ident * ident list * 'term * 'term (*asset_name * field_name modified * ... *)
   | Mupdate           of ident * 'term * ('id * assignment_operator * 'term) list
   | Maddupdate        of ident * 'term container_kind_gen * 'term * ('id * assignment_operator * 'term) list
+  | Maddforce         of ident * 'term
   (* asset api expression *)
   | Mget              of ident * 'term container_kind_gen * 'term
   | Mselect           of ident * 'term container_kind_gen * (ident * type_) list * 'term * 'term list (* asset_name, view, lambda (args, body, apply_args) *)
@@ -272,16 +288,21 @@ type ('id, 'term) mterm_node  =
   (* utils *)
   | Mcast             of type_ * type_ * 'term
   | Mtupleaccess      of 'term * Core.big_int
+  | Mrecupdate        of 'term * (ident * 'term) list
   (* set api expression *)
   | Msetadd           of type_ * 'term * 'term
   | Msetremove        of type_ * 'term * 'term
   | Msetcontains      of type_ * 'term * 'term
   | Msetlength        of type_ * 'term
+  | Msetfold          of type_ * 'id   * 'id   * 'term * 'term * 'term
   (* list api expression *)
   | Mlistprepend      of type_ * 'term * 'term
-  | Mlistcontains     of type_ * 'term * 'term
+  | Mlistheadtail     of type_ * 'term
   | Mlistlength       of type_ * 'term
+  | Mlistcontains     of type_ * 'term * 'term
   | Mlistnth          of type_ * 'term * 'term
+  | Mlistreverse      of type_ * 'term
+  | Mlistfold         of type_ * 'id   * 'id   * 'term * 'term * 'term
   (* map api expression *)
   | Mmapput           of type_ * type_ * 'term * 'term * 'term
   | Mmapremove        of type_ * type_ * 'term * 'term
@@ -289,6 +310,7 @@ type ('id, 'term) mterm_node  =
   | Mmapgetopt        of type_ * type_ * 'term * 'term
   | Mmapcontains      of type_ * type_ * 'term * 'term
   | Mmaplength        of type_ * type_ * 'term
+  | Mmapfold          of type_ * 'id   * 'id   * 'id   * 'term * 'term * 'term
   (* builtin functions *)
   | Mmin              of 'term * 'term
   | Mmax              of 'term * 'term
@@ -318,23 +340,19 @@ type ('id, 'term) mterm_node  =
   | Msource
   | Mselfaddress
   | Mchainid
+  | Mmetadata
   (* variable *)
-  | Mvar              of 'id * 'term var_kind_gen
+  | Mvar              of 'id * 'term var_kind_gen * temp * delta
   (* rational *)
   | Mrateq            of 'term * 'term
   | Mratcmp           of comparison_operator * 'term * 'term
   | Mratarith         of rat_arith_op * 'term * 'term
   | Mratuminus        of 'term
   | Mrattez           of 'term * 'term
-  | Mdivtez           of 'term * 'term
   | Mnattoint         of 'term
   | Mnattorat         of 'term
   | Minttorat         of 'term
   | Mratdur           of 'term * 'term
-  (* functional *)
-  | Mfold             of ('id * 'id list * 'term * 'term) (* ident list * collection * body *)
-  (* imperative *)
-  | Mbreak
   (* quantifiers *)
   | Mforall           of 'id * type_ * 'term option * 'term
   | Mexists           of 'id * type_ * 'term option * 'term
@@ -342,11 +360,6 @@ type ('id, 'term) mterm_node  =
   | Mimply            of 'term * 'term
   | Mequiv            of 'term * 'term
   (* formula asset collection *)
-  | Msetbefore        of 'term
-  | Msetat            of ident * 'term
-  | Msetunmoved       of 'term
-  | Msetadded         of 'term
-  | Msetremoved       of 'term
   | Msetiterated      of 'term iter_container_kind_gen
   | Msettoiterate     of 'term iter_container_kind_gen
   (* formula asset collection methods *)
@@ -425,6 +438,7 @@ and api_list =
   | Lcontains        of type_
   | Llength          of type_
   | Lnth             of type_
+  | Lreverse         of type_
 [@@deriving show {with_path = false}]
 
 and api_builtin =
@@ -449,7 +463,6 @@ and api_internal =
   | RatArith
   | RatUminus
   | RatTez
-  | DivTez
   | RatDur
 [@@deriving show {with_path = false}]
 
@@ -533,6 +546,7 @@ type 'id storage_item_gen = {
 [@@deriving show {with_path = false}]
 
 type storage_item = lident storage_item_gen
+[@@deriving show {with_path = false}]
 
 type 'id storage_gen = 'id storage_item_gen list
 [@@deriving show {with_path = false}]
@@ -638,10 +652,11 @@ type argument = lident argument_gen
 [@@deriving show {with_path = false}]
 
 type 'id function_struct_gen = {
-  name: 'id;
-  args: 'id argument_gen list;
-  body: 'id mterm_gen;
-  loc : Location.t [@opaque];
+  name:  'id;
+  args:  'id argument_gen list;
+  eargs: 'id argument_gen list;
+  body:  'id mterm_gen;
+  loc :  Location.t [@opaque];
 }
 [@@deriving show {with_path = false}]
 
@@ -650,6 +665,7 @@ type function_struct = lident function_struct_gen
 
 type 'id function_node_gen =
   | Function           of 'id function_struct_gen * type_ (* fun * return type *)
+  | Getter             of 'id function_struct_gen * type_
   | Entry              of 'id function_struct_gen
 [@@deriving show {with_path = false}]
 
@@ -708,6 +724,17 @@ type 'id invariant_gen = {
 type invariant = lident invariant_gen
 [@@deriving show {with_path = false}]
 
+type 'id fail_gen = {
+  label: 'id;
+  arg: 'id;
+  atype: type_;
+  formula: 'id mterm_gen;
+  loc: Location.t [@opaque];
+}
+[@@deriving show {with_path = false}]
+
+type fail = lident fail_gen
+[@@deriving show {with_path = false}]
 
 type spec_mode =
   | Post
@@ -744,6 +771,7 @@ type 'id specification_gen = {
   definitions    : 'id definition_gen list;
   lemmas         : 'id label_term_gen list;
   theorems       : 'id label_term_gen list;
+  fails          : 'id fail_gen list;
   variables      : 'id variable_gen list;
   invariants     : ('id * 'id label_term_gen list) list;
   effects        : 'id mterm_gen list;
@@ -848,14 +876,17 @@ let mk_definition ?(loc = Location.dummy) name typ var body =
 let mk_invariant ?(formulas = []) label =
   { label; formulas }
 
+let mk_fail ?(loc = Location.dummy) label arg atype formula =
+  { label; arg; atype; formula; loc }
+
 let mk_postcondition ?(invariants = []) ?(uses = []) name mode formula =
   { name; mode; formula; invariants; uses }
 
 let mk_assert ?(invariants = []) ?(uses = []) name label formula =
   { name; label; formula; invariants; uses }
 
-let mk_specification ?(predicates = []) ?(definitions = []) ?(lemmas = []) ?(theorems = []) ?(variables = []) ?(invariants = []) ?(effects = []) ?(postconditions = []) ?(loc = Location.dummy) () =
-  { predicates; definitions; lemmas; theorems; variables; invariants; effects; postconditions; loc}
+let mk_specification ?(predicates = []) ?(definitions = []) ?(lemmas = []) ?(theorems = []) ?(fails = []) ?(variables = []) ?(invariants = []) ?(effects = []) ?(postconditions = []) ?(loc = Location.dummy) () =
+  { predicates; definitions; lemmas; theorems; fails; variables; invariants; effects; postconditions; loc}
 
 let mk_security_predicate ?(loc = Location.dummy) s_node : security_predicate =
   { s_node; loc }
@@ -890,8 +921,8 @@ let mk_record_field ?(loc = Location.dummy) name type_ : 'id record_field_gen =
 let mk_storage_item ?(const=false) ?(ghost = false) ?(loc = Location.dummy) id model_type typ default : 'id storage_item_gen =
   { id; model_type; typ; const; ghost; default; loc }
 
-let mk_function_struct ?(args = []) ?(loc = Location.dummy) name body : function_struct =
-  { name; args; body; loc }
+let mk_function_struct ?(args = []) ?(eargs = []) ?(loc = Location.dummy) name body : function_struct =
+  { name; args; eargs; body; loc }
 
 let mk_function ?spec node : 'id function__gen =
   { node; spec }
@@ -904,6 +935,79 @@ let mk_api_item node_item api_loc =
 
 let mk_model ?(api_items = []) ?(api_verif = []) ?(decls = []) ?(functions = []) ?(storage = []) ?(specification = mk_specification ()) ?(security = mk_security ()) ?(loc = Location.dummy) name : model =
   { name; api_items; api_verif; storage; decls; functions; specification; security; loc }
+
+(* -------------------------------------------------------------------- *)
+
+let tunit         = Tunit
+let tbool         = Tbuiltin Bbool
+let tnat          = Tbuiltin Bnat
+let tint          = Tbuiltin Bint
+let tstring       = Tbuiltin Bstring
+let tbytes        = Tbuiltin Bbytes
+let ttez          = Tbuiltin Bcurrency
+let tkey          = Tbuiltin Bkey
+let tkeyhash      = Tbuiltin Bkeyhash
+let ttimestamp    = Tbuiltin Btimestamp
+let taddress      = Tbuiltin Baddress
+let toption t     = Toption t
+let tset t        = Tset t
+let tlist t       = Tlist t
+let tmap k v      = Tmap (false, k, v)
+let tbig_map k v  = Tmap (true, k, v)
+let tlambda a r   = Tlambda (a, r)
+let ttuple l      = Ttuple l
+let trat          = ttuple [tint; tnat]
+let toperation    = Toperation
+let tsignature    = Tbuiltin Bsignature
+let tcontract t   = Tcontract t
+let tchainid      = Tbuiltin Bchainid
+
+let mk_bool x   = mk_mterm (Mbool x) tbool
+let mk_string x = mk_mterm (Mstring x) tstring
+let mk_bytes x  = mk_mterm (Mbytes x) tbytes
+let mk_bnat x   = mk_mterm (Mnat x) tnat
+let mk_nat x    = mk_bnat  (Big_int.big_int_of_int x)
+let mk_bint x   = mk_mterm (Mint x) tint
+let mk_int x    = mk_bint  (Big_int.big_int_of_int x)
+let unit        = mk_mterm (Munit) tunit
+let mtrue       = mk_mterm (Mbool true) tbool
+let mfalse      = mk_mterm (Mbool false) tbool
+
+
+let mk_mvar id t = mk_mterm (Mvar(id, Vlocal, Tnone, Dnone )) t
+let mk_pvar id t = mk_mterm (Mvar(id, Vparam, Tnone, Dnone )) t
+let mk_svar id t = mk_mterm (Mvar(id, Vstorevar, Tnone, Dnone )) t
+
+let mk_tez v = mk_mterm (Mcurrency(Big_int.big_int_of_int v, Utz)) ttez
+
+let mk_tuple (l : mterm list) = mk_mterm (Mtuple l) (Ttuple (List.map (fun (x : mterm) -> x.type_) l))
+
+let mk_letin id v b = mk_mterm (Mletin([id], v, Some v.type_, b, None)) b.type_
+
+let mk_tupleaccess n (x : mterm) =
+  match x.type_ with
+  | Ttuple lt ->
+    let t = List.nth lt n in
+    mk_mterm (Mtupleaccess (x, Big_int.big_int_of_int n)) t
+  | _ -> Format.eprintf "mk_tupleaccess type: %a@." pp_type_ x.type_; assert false
+
+let mk_optget (x : mterm) =
+  match x.type_ with
+  | Toption t -> mk_mterm (Moptget x) t
+  | _ -> assert false
+
+let mk_abs (x : mterm) = mk_mterm (Mabs x) tnat
+
+let mk_nat_to_int (x : mterm) = mk_mterm (Mnattoint x) tint
+
+let mk_some x = mk_mterm (Msome x) (toption x.type_)
+
+let mk_none t = mk_mterm (Mnone) (toption t)
+
+let fail x  = mk_mterm (Mfail (Invalid (mk_string x))) tunit
+let failg x = mk_mterm (Mfail (Invalid (x))) tunit
+let mnot x  = mk_mterm (Mnot x) tbool
+let seq x   = mk_mterm (Mseq x) tunit
 
 (* -------------------------------------------------------------------- *)
 
@@ -952,10 +1056,11 @@ let rec cmp_type
   | Tset b1, Tset b2                         -> cmp_type b1 b2
   | Tmap (b1, k1, v1), Tmap (b2, k2, v2)     -> b1 = b2 && cmp_type k1 k2 && cmp_type v1 v2
   | Trecord i1, Trecord i2                   -> cmp_lident i1 i2
+  | Tlambda (a1, r1), Tlambda (a2, r2)       -> cmp_type a1 a2 && cmp_type r1 r2
   | Tunit, Tunit                             -> true
   | Tstorage, Tstorage                       -> true
   | Toperation, Toperation                   -> true
-  | Tentrysig t1, Tentrysig t2               -> cmp_type t1 t2
+  | Tcontract t1, Tcontract t2               -> cmp_type t1 t2
   | Tprog t1, Tprog t2                       -> cmp_type t1 t2
   | Tvset (v1, t1), Tvset (v2, t2)           -> cmp_vset v1 v2 && cmp_type t1 t2
   | Ttrace t1, Ttrace t2                     -> cmp_trtyp t1 t2
@@ -1010,6 +1115,7 @@ let cmp_mterm_node
     | Vstorevar, Vstorevar
     | Vstorecol, Vstorecol
     | Venumval, Venumval
+    | Vdefinition, Vdefinition
     | Vlocal, Vlocal
     | Vparam, Vparam
     | Vfield, Vfield
@@ -1017,10 +1123,27 @@ let cmp_mterm_node
     | Vthe, Vthe -> true
     | _ -> false
   in
+  let cmp_temp (lhs : temp) (rhs : temp) : bool =
+    match lhs, rhs with
+    | Tbefore, Tbefore -> true
+    | Tat i1, Tat i2   -> cmp_ident i1 i2
+    | Tnone, Tnone     -> true
+    | _ -> false
+  in
+  let cmp_delta (lhs : delta) (rhs : delta) : bool =
+    match lhs, rhs with
+    | Dadded, Dadded     -> true
+    | Dremoved, Dremoved -> true
+    | Dunmoved, Dunmoved -> true
+    | Dnone, Dnone       -> true
+    | _ -> false
+  in
   let cmp_container_kind (lhs : container_kind) (rhs : container_kind) : bool =
     match lhs, rhs with
-    | CKcoll, CKcoll -> true
+    | CKcoll (t1, d1), CKcoll (t2, d2) -> cmp_temp t1 t2 && cmp_delta d1 d2
     | CKview l, CKview r -> cmp l r
+    | CKfield (an1, fn1, mt1, t1, d1), CKfield (an2, fn2, mt2, t2, d2) -> cmp_ident an1 an2 && cmp_ident fn1 fn2 && cmp mt1 mt2 && cmp_temp t1 t2 && cmp_delta d1 d2
+    | CKdef v1, CKdef v2 -> cmp_ident v1 v2
     | _ -> false
   in
   let cmp_iter_container_kind (lhs : iter_container_kind) (rhs : iter_container_kind) : bool =
@@ -1085,6 +1208,7 @@ let cmp_mterm_node
     (* control expression *)
     | Mexprif (c1, t1, e1), Mexprif (c2, t2, e2)                                       -> cmp c1 c2 && cmp t1 t2 && cmp e1 e2
     | Mexprmatchwith (e1, l1), Mexprmatchwith (e2, l2)                                 -> cmp e1 e2 && List.for_all2 (fun (p1, t1) (p2, t2) -> cmp_pattern p1 p2 && cmp t1 t2) l1 l2
+    | Mmatchsome (e1, n1, i1, s1), Mmatchsome (e2, n2, i2, s2)                         -> cmp e1 e2 && cmp n1 n2 && cmp_ident i1 i2 && cmp s1 s2
     (* composite type constructors *)
     | Mnone, Mnone                                                                     -> true
     | Msome v1, Msome v2                                                               -> cmp v1 v2
@@ -1098,8 +1222,6 @@ let cmp_mterm_node
     (* access *)
     | Mdot (e1, i1), Mdot (e2, i2)                                                     -> cmp e1 e2 && cmpi i1 i2
     | Mdotassetfield (an1, k1, fn1), Mdotassetfield (an2, k2, fn2)                     -> cmpi an1 an2 && cmp k1 k2 && cmpi fn1 fn2
-    | Mdotcontract (e1, i1), Mdotcontract (e2, i2)                                     -> cmp e1 e2 && cmpi i1 i2
-    | Maccestuple (e1, i1), Maccestuple (e2, i2)                                       -> cmp e1 e2 && Big_int.eq_big_int i1 i2
     (* comparison operators *)
     | Mequal (t1, l1, r1), Mequal (t2, l2, r2)                                         -> cmp_type t1 t2 && cmp l1 l2 && cmp r1 r2
     | Mnequal (t1, l1, r1), Mnequal (t2, l2, r2)                                       -> cmp_type t1 t2 && cmp l1 l2 && cmp r1 r2
@@ -1111,6 +1233,7 @@ let cmp_mterm_node
     (* arithmetic operators *)
     | Mand (l1, r1), Mand (l2, r2)                                                     -> cmp l1 l2 && cmp r1 r2
     | Mor (l1, r1), Mor (l2, r2)                                                       -> cmp l1 l2 && cmp r1 r2
+    | Mxor (l1, r1), Mxor (l2, r2)                                                     -> cmp l1 l2 && cmp r1 r2
     | Mnot e1, Mnot e2                                                                 -> cmp e1 e2
     | Mplus (l1, r1), Mplus (l2, r2)                                                   -> cmp l1 l2 && cmp r1 r2
     | Mminus (l1, r1), Mminus (l2, r2)                                                 -> cmp l1 l2 && cmp r1 r2
@@ -1118,7 +1241,6 @@ let cmp_mterm_node
     | Mdivrat (l1, r1), Mdivrat (l2, r2)                                               -> cmp l1 l2 && cmp r1 r2
     | Mdiveuc (l1, r1), Mdiveuc (l2, r2)                                               -> cmp l1 l2 && cmp r1 r2
     | Mmodulo (l1, r1), Mmodulo (l2, r2)                                               -> cmp l1 l2 && cmp r1 r2
-    | Muplus e1, Muplus e2                                                             -> cmp e1 e2
     | Muminus e1, Muminus e2                                                           -> cmp e1 e2
     (* asset api effect *)
     | Maddasset (an1, i1), Maddasset (an2, i2)                                         -> cmp_ident an1 an2 && cmp i1 i2
@@ -1131,6 +1253,7 @@ let cmp_mterm_node
     | Mset (c1, l1, k1, v1), Mset (c2, l2, k2, v2)                                     -> cmp_ident c1 c2 && List.for_all2 cmp_ident l1 l2 && cmp k1 k2 && cmp v1 v2
     | Mupdate (an1, k1, l1), Mupdate (an2, k2, l2)                                     -> cmp_ident an1 an2 && cmp k1 k2 && List.for_all2 (fun (id1, op1, v1) (id2, op2, v2) -> cmpi id1 id2 && cmp_assign_op op1 op2 && cmp v1 v2) l1 l2
     | Maddupdate (an1, c1, k1, l1), Maddupdate (an2, c2, k2, l2)                       -> cmp_ident an1 an2 && cmp_container_kind c1 c2 && cmp k1 k2 && List.for_all2 (fun (id1, op1, v1) (id2, op2, v2) -> cmpi id1 id2 && cmp_assign_op op1 op2 && cmp v1 v2) l1 l2
+    | Maddforce (an1, v1), Maddforce (an2, v2)                                         -> cmp_ident an1 an2 && cmp v1 v2
     (* asset api expression *)
     | Mget (an1, c1, k1), Mget (an2, c2, k2)                                           -> cmp_ident an1 an2 && cmp_container_kind c1 c2 && cmp k1 k2
     | Mselect (an1, c1, la1, lb1, a1), Mselect (an2, c2, la2, lb2, a2)                 -> cmp_ident an1 an2 && cmp_container_kind c1 c2 && List.for_all2 (fun (i1, t1) (i2, t2) -> cmp_ident i1 i2 && cmp_type t1 t2) la1 la2 && cmp lb1 lb2 && List.for_all2 cmp a1 a2
@@ -1144,16 +1267,21 @@ let cmp_mterm_node
     (* utils *)
     | Mcast (src1, dst1, v1), Mcast (src2, dst2, v2)                                   -> cmp_type src1 src2 && cmp_type dst1 dst2 && cmp v1 v2
     | Mtupleaccess (x1, k1), Mtupleaccess (x2, k2)                                     -> cmp x1 x2 && Big_int.eq_big_int k1 k2
+    | Mrecupdate (x1, l1), Mrecupdate (x2, l2)                                         -> cmp x1 x2 && List.for_all2 (fun (i1, v1) (i2, v2) -> cmp_ident i1 i2 && cmp v1 v2) l1 l2
     (* set api expression *)
     | Msetadd (t1, c1, a1), Msetadd (t2, c2, a2)                                       -> cmp_type t1 t2 && cmp c1 c2 && cmp a1 a2
     | Msetremove (t1, c1, a1), Msetremove (t2, c2, a2)                                 -> cmp_type t1 t2 && cmp c1 c2 && cmp a1 a2
     | Msetcontains (t1, c1, a1), Msetcontains (t2, c2, a2)                             -> cmp_type t1 t2 && cmp c1 c2 && cmp a1 a2
     | Msetlength (t1, c1), Msetlength (t2, c2)                                         -> cmp_type t1 t2 && cmp c1 c2
+    | Msetfold (t1, ix1, ia1, c1, a1, b1), Msetfold (t2, ix2, ia2, c2, a2, b2)         -> cmp_type t1 t2 && cmp_lident ix1 ix2 && cmp_lident ia1 ia2 && cmp c1 c2 && cmp a1 a2 && cmp b1 b2
     (* list api expression *)
     | Mlistprepend (t1, c1, a1), Mlistprepend (t2, c2, a2)                             -> cmp_type t1 t2 && cmp c1 c2 && cmp a1 a2
-    | Mlistcontains (t1, c1, a1), Mlistcontains (t2, c2, a2)                           -> cmp_type t1 t2 && cmp c1 c2 && cmp a1 a2
+    | Mlistheadtail (t1, c1), Mlistheadtail (t2, c2)                                   -> cmp_type t1 t2 && cmp c1 c2
     | Mlistlength (t1, c1), Mlistlength (t2, c2)                                       -> cmp_type t1 t2 && cmp c1 c2
+    | Mlistcontains (t1, c1, a1), Mlistcontains (t2, c2, a2)                           -> cmp_type t1 t2 && cmp c1 c2 && cmp a1 a2
     | Mlistnth (t1, c1, a1), Mlistnth (t2, c2, a2)                                     -> cmp_type t1 t2 && cmp c1 c2 && cmp a1 a2
+    | Mlistreverse (t1, l1), Mlistreverse (t2, l2)                                     -> cmp_type t1 t2 && cmp l1 l2
+    | Mlistfold (t1, ix1, ia1, c1, a1, b1), Mlistfold (t2, ix2, ia2, c2, a2, b2)       -> cmp_type t1 t2 && cmp_lident ix1 ix2 && cmp_lident ia1 ia2 && cmp c1 c2 && cmp a1 a2 && cmp b1 b2
     (* map api expression *)
     | Mmapput (tk1, tv1, c1, k1, v1), Mmapput (tk2, tv2, c2, k2, v2)                   -> cmp_type tk1 tk2 && cmp_type tv1 tv2 && cmp c1 c2 && cmp k1 k2 && cmp v1 v2
     | Mmapremove (tk1, tv1, c1, k1), Mmapremove (tk2, tv2, c2, k2)                     -> cmp_type tk1 tk2 && cmp_type tv1 tv2 && cmp c1 c2 && cmp k1 k2
@@ -1161,6 +1289,7 @@ let cmp_mterm_node
     | Mmapgetopt (tk1, tv1, c1, k1), Mmapgetopt (tk2, tv2, c2, k2)                     -> cmp_type tk1 tk2 && cmp_type tv1 tv2 && cmp c1 c2 && cmp k1 k2
     | Mmapcontains (tk1, tv1, c1, k1), Mmapcontains (tk2, tv2, c2, k2)                 -> cmp_type tk1 tk2 && cmp_type tv1 tv2 && cmp c1 c2 && cmp k1 k2
     | Mmaplength (tk1, tv1, c1), Mmaplength (tk2, tv2, c2)                             -> cmp_type tk1 tk2 && cmp_type tv1 tv2 && cmp c1 c2
+    | Mmapfold (t1, ik1, iv1, ia1, c1, a1, b1), Mmapfold (t2, ik2, iv2, ia2, c2, a2, b2) -> cmp_type t1 t2 && cmp_lident ik1 ik2 && cmp_lident iv1 iv2 && cmp_lident ia1 ia2 && cmp c1 c2 && cmp a1 a2 && cmp b1 b2
     (* builtin functions *)
     | Mmin (l1, r1), Mmin (l2, r2)                                                     -> cmp l1 l2 && cmp r1 r2
     | Mmax (l1, r1), Mmax (l2, r2)                                                     -> cmp l1 l2 && cmp r1 r2
@@ -1191,23 +1320,19 @@ let cmp_mterm_node
     | Msource, Msource                                                                 -> true
     | Mselfaddress, Mselfaddress                                                       -> true
     | Mchainid, Mchainid                                                               -> true
+    | Mmetadata, Mmetadata                                                             -> true
     (* variable *)
-    | Mvar (id1, k1), Mvar (id2, k2)                                                   -> cmpi id1 id2 && cmp_var_kind k1 k2
+    | Mvar (id1, k1, t1, d1), Mvar (id2, k2, t2, d2)                                   -> cmpi id1 id2 && cmp_var_kind k1 k2 && cmp_temp t1 t2 && cmp_delta d1 d2
     (* rational *)
     | Mrateq (l1, r1), Mrateq (l2, r2)                                                 -> cmp l1 l2 && cmp r1 r2
     | Mratcmp (op1, l1, r1), Mratcmp (op2, l2, r2)                                     -> cmp_comparison_operator op1 op2 && cmp l1 l2 && cmp r1 r2
     | Mratarith (op1, l1, r1), Mratarith (op2, l2, r2)                                 -> cmp_rat_arith_op op1 op2 && cmp l1 l2 && cmp r1 r2
     | Mratuminus v1, Mratuminus v2                                                     -> cmp v1 v2
     | Mrattez (c1, t1), Mrattez (c2, t2)                                               -> cmp c1 c2 && cmp t1 t2
-    | Mdivtez (c1, t1), Mdivtez (c2, t2)                                               -> cmp c1 c2 && cmp t1 t2
     | Mnattoint e1, Mnattoint e2                                                       -> cmp e1 e2
     | Mnattorat e1, Mnattorat e2                                                       -> cmp e1 e2
     | Minttorat e1, Minttorat e2                                                       -> cmp e1 e2
     | Mratdur (c1, t1), Mratdur (c2, t2)                                               -> cmp c1 c2 && cmp t1 t2
-    (* functional *)
-    | Mfold (i1, is1, c1, b1), Mfold (i2, is2, c2, b2)                                 -> cmpi i1 i2 && List.for_all2 cmpi is1 is2 && cmp c1 c2 && cmp b1 b2
-    (* imperative *)
-    | Mbreak, Mbreak                                                                   -> true
     (* quantifiers *)
     | Mforall (i1, t1, t2, e1), Mforall (i2, t3, t4, e2)                               -> cmpi i1 i2 && cmp_type t1 t3 && Option.cmp cmp t2 t4 && cmp e1 e2
     | Mexists (i1, t1, t2, e1), Mforall (i2, t3, t4, e2)                               -> cmpi i1 i2 && cmp_type t1 t3 && Option.cmp cmp t2 t4 && cmp e1 e2
@@ -1215,11 +1340,6 @@ let cmp_mterm_node
     | Mimply (l1, r1), Mimply (l2, r2)                                                 -> cmp l1 l2 && cmp r1 r2
     | Mequiv (l1, r1), Mequiv (l2, r2)                                                 -> cmp l1 l2 && cmp r1 r2
     (* formula asset collection *)
-    | Msetbefore e1, Msetbefore e2                                                     -> cmp e1 e2
-    | Msetat (lbl1, e1), Msetat (lbl2, e2)                                             -> cmp_ident lbl1 lbl2 && cmp e1 e2
-    | Msetunmoved e1, Msetunmoved e2                                                   -> cmp e1 e2
-    | Msetadded e1, Msetadded e2                                                       -> cmp e1 e2
-    | Msetremoved e1, Msetremoved   e2                                                 -> cmp e1 e2
     | Msetiterated e1, Msetiterated  e2                                                -> cmp_iter_container_kind e1 e2
     | Msettoiterate e1, Msettoiterate e2                                               -> cmp_iter_container_kind e1 e2
     (* formula asset collection methods *)
@@ -1275,6 +1395,7 @@ let cmp_api_item_node (a1 : api_storage_node) (a2 : api_storage_node) : bool =
     | Lcontains t1, Lcontains t2 -> cmp_type t1 t2
     | Llength   t1, Llength   t2 -> cmp_type t1 t2
     | Lnth      t1, Lnth      t2 -> cmp_type t1 t2
+    | Lreverse  t1, Lreverse  t2 -> cmp_type t1 t2
     | _ -> false
   in
   let cmp_api_builtin (b1 : api_builtin) (b2 : api_builtin) : bool =
@@ -1301,7 +1422,6 @@ let cmp_api_item_node (a1 : api_storage_node) (a2 : api_storage_node) : bool =
     | RatArith,  RatArith  -> true
     | RatUminus, RatUminus -> true
     | RatTez,    RatTez    -> true
-    | DivTez,    DivTez    -> true
     | RatDur,    RatDur    -> true
     | _ -> false
   in
@@ -1342,10 +1462,11 @@ let map_type (f : type_ -> type_) = function
   | Tset k            -> Tset k
   | Tmap (b, k, v)    -> Tmap (b, k, f v)
   | Trecord id        -> Trecord id
+  | Tlambda (a, r)    -> Tlambda (f a, f r)
   | Tunit             -> Tunit
   | Tstorage          -> Tstorage
   | Toperation        -> Toperation
-  | Tentrysig t       -> Tentrysig (f t)
+  | Tcontract t       -> Tcontract (f t)
   | Tprog t           -> Tprog (f t)
   | Tvset (v, t)      -> Tvset (v, t)
   | Ttrace t          -> Ttrace t
@@ -1370,16 +1491,29 @@ let map_var_kind f = function
   | Vstorevar -> Vstorevar
   | Vstorecol -> Vstorecol
   | Venumval -> Venumval
+  | Vdefinition -> Vdefinition
   | Vlocal -> Vlocal
   | Vparam -> Vparam
   | Vfield -> Vfield
   | Vstate -> Vstate
   | Vthe -> Vthe
 
+let map_temp (fi : ident -> ident) = function
+  | Tbefore -> Tbefore
+  | Tat i   -> Tat (fi i)
+  | Tnone   -> Tnone
+
+let map_delta = function
+  | Dadded   -> Dadded
+  | Dremoved -> Dremoved
+  | Dunmoved -> Dunmoved
+  | Dnone    -> Dnone
+
 let map_container_kind (fi : ident -> ident) f = function
-  | CKcoll               -> CKcoll
-  | CKview  mt           -> CKview  (f mt)
-  | CKfield (an, fn, mt) -> CKfield (fi an, fi fn, f mt)
+  | CKcoll (t, d)              -> CKcoll (map_temp fi t, map_delta d)
+  | CKview  mt                 -> CKview  (f mt)
+  | CKfield (an, fn, mt, t, d) -> CKfield (fi an, fi fn, f mt, map_temp fi t, map_delta d)
+  | CKdef v                    -> CKdef (fi v)
 
 let map_iter_container_kind (fi : ident -> ident) f = function
   | ICKcoll  an           -> ICKcoll  (fi an)
@@ -1438,6 +1572,7 @@ let map_term_node_internal (fi : ident -> ident) (g : 'id -> 'id) (ft : type_ ->
   (* control expression *)
   | Mexprif (c, t, e)              -> Mexprif (f c, f t, f e)
   | Mexprmatchwith (e, l)          -> Mexprmatchwith (f e, List.map (fun (p, e) -> (p, f e)) l)
+  | Mmatchsome (e, n, i, s)        -> Mmatchsome (f e, f n, fi i, f s)
   (* composite type constructors *)
   | Mnone                          -> Mnone
   | Msome v                        -> Msome (f v)
@@ -1451,8 +1586,6 @@ let map_term_node_internal (fi : ident -> ident) (g : 'id -> 'id) (ft : type_ ->
   (* access *)
   | Mdot (e, i)                    -> Mdot (f e, g i)
   | Mdotassetfield (an, k, fn)     -> Mdotassetfield (g an, f k, g fn)
-  | Mdotcontract (e, i)            -> Mdotcontract (f e, g i)
-  | Maccestuple (e, i)             -> Maccestuple (f e, i)
   (* comparison operators *)
   | Mequal (t, l, r)               -> Mequal (ft t, f l, f r)
   | Mnequal (t, l, r)              -> Mnequal (ft t, f l, f r)
@@ -1464,6 +1597,7 @@ let map_term_node_internal (fi : ident -> ident) (g : 'id -> 'id) (ft : type_ ->
   (* arithmetic operators *)
   | Mand (l, r)                    -> Mand (f l, f r)
   | Mor (l, r)                     -> Mor (f l, f r)
+  | Mxor (l, r)                    -> Mxor (f l, f r)
   | Mnot e                         -> Mnot (f e)
   | Mplus (l, r)                   -> Mplus (f l, f r)
   | Mminus (l, r)                  -> Mminus (f l, f r)
@@ -1471,7 +1605,6 @@ let map_term_node_internal (fi : ident -> ident) (g : 'id -> 'id) (ft : type_ ->
   | Mdivrat (l, r)                 -> Mdivrat (f l, f r)
   | Mdiveuc (l, r)                 -> Mdiveuc (f l, f r)
   | Mmodulo (l, r)                 -> Mmodulo (f l, f r)
-  | Muplus e                       -> Muplus (f e)
   | Muminus e                      -> Muminus (f e)
   (* asset api effect *)
   | Maddasset (an, i)              -> Maddasset (fi an, f i)
@@ -1484,6 +1617,7 @@ let map_term_node_internal (fi : ident -> ident) (g : 'id -> 'id) (ft : type_ ->
   | Mset (an, l, k, v)             -> Mset (fi an, List.map fi l, f k, f v)
   | Mupdate (an, k, l)             -> Mupdate (fi an, f k, List.map (fun (id, op, v) -> (g id, op, f v)) l)
   | Maddupdate (an, c, k, l)       -> Maddupdate (fi an, map_container_kind fi f c, f k, List.map (fun (id, op, v) -> (g id, op, f v)) l)
+  | Maddforce (an, v)              -> Maddforce (fi an, f v)
   (* asset api expression *)
   | Mget (an, c, k)                -> Mget (fi an, map_container_kind fi f c, f k)
   | Mselect (an, c, la, lb, a)     -> Mselect (fi an, map_container_kind fi f c, List.map (fun (i, t) -> (fi i, ft t)) la, f lb, List.map f a)
@@ -1497,16 +1631,21 @@ let map_term_node_internal (fi : ident -> ident) (g : 'id -> 'id) (ft : type_ ->
   (* utils *)
   | Mcast (src, dst, v)            -> Mcast (ft src, ft dst, f v)
   | Mtupleaccess (x, k)            -> Mtupleaccess (f x, k)
+  | Mrecupdate (x, l)              -> Mrecupdate (f x, List.map (fun (i, v) -> i, f v) l)
   (* set api expression *)
   | Msetadd (t, c, a)              -> Msetadd (ft t, f c, f a)
   | Msetremove (t, c, a)           -> Msetremove (ft t, f c, f a)
   | Msetcontains (t, c, a)         -> Msetcontains (ft t, f c, f a)
   | Msetlength (t, c)              -> Msetlength (ft t, f c)
+  | Msetfold (t, ix, ia, c, a, b)  -> Msetfold (ft t, g ix, g ia, f c, f a, f b)
   (* list api expression *)
   | Mlistprepend (t, c, a)         -> Mlistprepend (ft t, f c, f a)
-  | Mlistcontains (t, c, a)        -> Mlistcontains (t, f c, f a)
+  | Mlistheadtail(t, c)            -> Mlistheadtail(t, f c)
   | Mlistlength(t, c)              -> Mlistlength(t, f c)
+  | Mlistcontains (t, c, a)        -> Mlistcontains (t, f c, f a)
   | Mlistnth (t, c, a)             -> Mlistnth (t, f c, f a)
+  | Mlistreverse(t, l)             -> Mlistreverse(t, f l)
+  | Mlistfold (t, ix, ia, c, a, b) -> Mlistfold (ft t, g ix, g ia, f c, f a, f b)
   (* map api expression *)
   | Mmapput (tk, tv, c, k, v)      -> Mmapput (ft tk, ft tv, f c, f k, f v)
   | Mmapremove (tk, tv, c, k)      -> Mmapremove (ft tk, ft tv, f c, f k)
@@ -1514,6 +1653,7 @@ let map_term_node_internal (fi : ident -> ident) (g : 'id -> 'id) (ft : type_ ->
   | Mmapgetopt (tk, tv, c, k)      -> Mmapgetopt (ft tk, ft tv, f c, f k)
   | Mmapcontains (tk, tv, c, k)    -> Mmapcontains (ft tk, ft tv, f c, f k)
   | Mmaplength (tk, tv, c)         -> Mmaplength (ft tk, ft tv, f c)
+  | Mmapfold (t, ik, iv, ia, c, a, b) -> Mmapfold (ft t, g ik, g iv, g ia, f c, f a, f b)
   (* builtin functions *)
   | Mmin (l, r)                    -> Mmin (f l, f r)
   | Mmax (l, r)                    -> Mmax (f l, f r)
@@ -1541,25 +1681,21 @@ let map_term_node_internal (fi : ident -> ident) (g : 'id -> 'id) (ft : type_ ->
   | Mcaller                        -> Mcaller
   | Mbalance                       -> Mbalance
   | Msource                        -> Msource
-  | Mchainid                       -> Mchainid
   | Mselfaddress                   -> Mselfaddress
+  | Mchainid                       -> Mchainid
+  | Mmetadata                      -> Mmetadata
   (* variable *)
-  | Mvar (id, k)                   -> Mvar (g id, map_var_kind f k)
+  | Mvar (id, k, t, d)             -> Mvar (g id, map_var_kind f k, map_temp fi t, map_delta d)
   (* rational *)
   | Mrateq (l, r)                  -> Mrateq (f l, f r)
   | Mratcmp (op, l, r)             -> Mratcmp (op, f l, f r)
   | Mratarith (op, l, r)           -> Mratarith (op, f l, f r)
   | Mratuminus v                   -> Mratuminus (f v)
   | Mrattez (c, t)                 -> Mrattez (f c, f t)
-  | Mdivtez (c, t)                 -> Mdivtez (f c, f t)
   | Mnattoint e                    -> Mnattoint (f e)
   | Mnattorat e                    -> Mnattorat (f e)
   | Minttorat e                    -> Minttorat (f e)
   | Mratdur (c, t)                 -> Mratdur (f c, f t)
-  (* functional *)
-  | Mfold (i, is, c, b)            -> Mfold (g i, List.map g is, f c, f b)
-  (* imperative *)
-  | Mbreak                         -> Mbreak
   (* quantifiers *)
   | Mforall (i, t, s, e)           -> Mforall (g i, ft t, Option.map f s, f e)
   | Mexists (i, t, s, e)           -> Mexists (g i, ft t, Option.map f s, f e)
@@ -1567,11 +1703,6 @@ let map_term_node_internal (fi : ident -> ident) (g : 'id -> 'id) (ft : type_ ->
   | Mimply (l, r)                  -> Mimply (f l, f r)
   | Mequiv  (l, r)                 -> Mequiv (f l, f r)
   (* formula asset collection *)
-  | Msetbefore    e                -> Msetbefore    (f e)
-  | Msetat (lbl, e)                -> Msetat        (fi lbl, f e)
-  | Msetunmoved   e                -> Msetunmoved   (f e)
-  | Msetadded     e                -> Msetadded     (f e)
-  | Msetremoved   e                -> Msetremoved   (f e)
   | Msetiterated  e                -> Msetiterated  (map_iter_container_kind fi f e)
   | Msettoiterate e                -> Msettoiterate (map_iter_container_kind fi f e)
   (* formula asset collection methods *)
@@ -1621,7 +1752,8 @@ let map_mterm_model_exec custom (f : ('id, 't) ctx_model_gen -> mterm -> mterm) 
   let map_function (ctx : ('id, 't) ctx_model_gen) (fun_ : function__) : function__ = (
     let node = match fun_.node with
       | Function (fs, ret) -> Function (map_function_struct ctx fs, ret)
-      | Entry fs -> Entry (map_function_struct ctx fs)
+      | Getter   (fs, ret) -> Getter   (map_function_struct ctx fs, ret)
+      | Entry     fs       -> Entry    (map_function_struct ctx fs)
     in
     { fun_ with node = node}
   ) in
@@ -1697,6 +1829,7 @@ let map_mterm_model_formula custom (f : ('id, 't) ctx_model_gen -> mterm -> mter
     let fs : function_struct =
       match fun_.node with
       | Function (fs, _) -> fs
+      | Getter (fs, _) -> fs
       | Entry fs -> fs
     in
     let ctx = { ctx with fs = Some fs } in
@@ -1733,6 +1866,7 @@ let fold_var_kind f accu = function
   | Vstorevar
   | Vstorecol
   | Venumval
+  | Vdefinition
   | Vlocal
   | Vparam
   | Vfield
@@ -1740,9 +1874,10 @@ let fold_var_kind f accu = function
   | Vthe -> accu
 
 let fold_container_kind f accu = function
-  | CKcoll          -> accu
-  | CKview mt       -> f accu mt
-  | CKfield (_, _, mt)      -> f accu mt
+  | CKcoll _                 -> accu
+  | CKview mt                -> f accu mt
+  | CKfield (_, _, mt, _, _) -> f accu mt
+  | CKdef _                  -> accu
 
 let fold_iter_container_kind f accu = function
   | ICKcoll  _          -> accu
@@ -1803,6 +1938,7 @@ let fold_term (f : 'a -> ('id mterm_gen) -> 'a) (accu : 'a) (term : 'id mterm_ge
   (* control expression *)
   | Mexprif (c, t, e)                     -> f (f (f accu c) t) e
   | Mexprmatchwith (e, l)                 -> List.fold_left (fun accu (_, a) -> f accu a) (f accu e) l
+  | Mmatchsome (e, n, _, s)               -> f (f (f accu s) n) e
   (* composite type constructors *)
   | Mnone                                 -> accu
   | Msome v                               -> f accu v
@@ -1816,11 +1952,9 @@ let fold_term (f : 'a -> ('id mterm_gen) -> 'a) (accu : 'a) (term : 'id mterm_ge
   (* access *)
   | Mdot (e, _)                           -> f accu e
   | Mdotassetfield (_, k, _)              -> f accu k
-  | Mdotcontract (e, _)                   -> f accu e
-  | Maccestuple (e, _)                    -> f accu e
   (* comparison operators *)
-  | Mequal (_, l, r)                         -> f (f accu l) r
-  | Mnequal (_, l, r)                        -> f (f accu l) r
+  | Mequal (_, l, r)                      -> f (f accu l) r
+  | Mnequal (_, l, r)                     -> f (f accu l) r
   | Mgt (l, r)                            -> f (f accu l) r
   | Mge (l, r)                            -> f (f accu l) r
   | Mlt (l, r)                            -> f (f accu l) r
@@ -1829,6 +1963,7 @@ let fold_term (f : 'a -> ('id mterm_gen) -> 'a) (accu : 'a) (term : 'id mterm_ge
   (* arithmetic operators *)
   | Mand (l, r)                           -> f (f accu l) r
   | Mor (l, r)                            -> f (f accu l) r
+  | Mxor (l, r)                           -> f (f accu l) r
   | Mnot e                                -> f accu e
   | Mplus (l, r)                          -> f (f accu l) r
   | Mminus (l, r)                         -> f (f accu l) r
@@ -1836,7 +1971,6 @@ let fold_term (f : 'a -> ('id mterm_gen) -> 'a) (accu : 'a) (term : 'id mterm_ge
   | Mdivrat (l, r)                        -> f (f accu l) r
   | Mdiveuc (l, r)                        -> f (f accu l) r
   | Mmodulo (l, r)                        -> f (f accu l) r
-  | Muplus e                              -> f accu e
   | Muminus e                             -> f accu e
   (* asset api effect *)
   | Maddasset (_, i)                      -> f accu i
@@ -1849,6 +1983,7 @@ let fold_term (f : 'a -> ('id mterm_gen) -> 'a) (accu : 'a) (term : 'id mterm_ge
   | Mset (_, _, k, v)                     -> f (f accu v) k
   | Mupdate (_, k, l)                     -> List.fold_left (fun accu (_, _, v) -> f accu v) (f accu k) l
   | Maddupdate (_, c, k, l)               -> List.fold_left (fun accu (_, _, v) -> f accu v) (f (fold_container_kind f accu c) k) l
+  | Maddforce (_, v)                      -> f accu v
   (* asset api expression *)
   | Mget (_, c, k)                        -> f (fold_container_kind f accu c) k
   | Mselect (_, c, _, lb, a)              -> List.fold_left (fun accu x -> f accu x) (f (fold_container_kind f accu c) lb) a
@@ -1862,16 +1997,21 @@ let fold_term (f : 'a -> ('id mterm_gen) -> 'a) (accu : 'a) (term : 'id mterm_ge
   (* utils *)
   | Mcast (_ , _, v)                      -> f accu v
   | Mtupleaccess (x, _)                   -> f accu x
+  | Mrecupdate (x, l)                     -> List.fold_left (fun accu (_, v) -> f accu v) (f accu x) l
   (* set api expression *)
   | Msetadd (_, c, a)                     -> f (f accu c) a
   | Msetremove (_, c, a)                  -> f (f accu c) a
   | Msetcontains (_, c, a)                -> f (f accu c) a
   | Msetlength (_, c)                     -> f accu c
+  | Msetfold (_, _, _, c, a, b)           -> f (f (f accu c) a) b
   (* list api expression *)
   | Mlistprepend (_, c, a)                -> f (f accu c) a
-  | Mlistcontains (_, c, a)               -> f (f accu c) a
+  | Mlistheadtail (_, c)                  -> f accu c
   | Mlistlength (_, c)                    -> f accu c
+  | Mlistcontains (_, c, a)               -> f (f accu c) a
   | Mlistnth (_, c, a)                    -> f (f accu c) a
+  | Mlistreverse (_, l)                   -> f accu l
+  | Mlistfold (_, _, _, c, a, b)          -> f (f (f accu c) a) b
   (* map api expression *)
   | Mmapput (_, _, c, k, v)               -> f (f (f accu c) k) v
   | Mmapremove (_, _, c, k)               -> f (f accu c) k
@@ -1879,6 +2019,7 @@ let fold_term (f : 'a -> ('id mterm_gen) -> 'a) (accu : 'a) (term : 'id mterm_ge
   | Mmapgetopt (_, _, c, k)               -> f (f accu c) k
   | Mmapcontains (_, _, c, k)             -> f (f accu c) k
   | Mmaplength (_, _, c)                  -> f accu c
+  | Mmapfold (_, _, _, _, c, a, b)        -> f (f (f accu c) a) b
   (* builtin functions *)
   | Mmax (l, r)                           -> f (f accu l) r
   | Mmin (l, r)                           -> f (f accu l) r
@@ -1908,23 +2049,19 @@ let fold_term (f : 'a -> ('id mterm_gen) -> 'a) (accu : 'a) (term : 'id mterm_ge
   | Msource                               -> accu
   | Mselfaddress                          -> accu
   | Mchainid                              -> accu
+  | Mmetadata                             -> accu
   (* variable *)
-  | Mvar (_, k)                           -> fold_var_kind f accu k
+  | Mvar (_, k, _, _)                     -> fold_var_kind f accu k
   (* rational *)
   | Mrateq (l, r)                         -> f (f accu l) r
   | Mratcmp (_, l, r)                     -> f (f accu l) r
   | Mratarith (_, l, r)                   -> f (f accu l) r
   | Mratuminus v                          -> f accu v
   | Mrattez (c, t)                        -> f (f accu c) t
-  | Mdivtez (c, t)                        -> f (f accu c) t
   | Mnattoint e                           -> f accu e
   | Mnattorat e                           -> f accu e
   | Minttorat e                           -> f accu e
   | Mratdur (c, t)                        -> f (f accu c) t
-  (* functional *)
-  | Mfold (_, _, c, b)                    -> f (f accu c) b
-  (* imperative *)
-  | Mbreak                                -> accu
   (* quantifiers *)
   | Mforall (_, _, s, e)                  -> f (opt f accu s) e
   | Mexists (_, _, s, e)                  -> f (opt f accu s) e
@@ -1932,11 +2069,6 @@ let fold_term (f : 'a -> ('id mterm_gen) -> 'a) (accu : 'a) (term : 'id mterm_ge
   | Mimply (l, r)                         -> f (f accu l) r
   | Mequiv  (l, r)                        -> f (f accu l) r
   (* formula asset collection *)
-  | Msetbefore    e                       -> f accu e
-  | Msetat   (_, e)                       -> f accu e
-  | Msetunmoved   e                       -> f accu e
-  | Msetadded     e                       -> f accu e
-  | Msetremoved   e                       -> f accu e
   | Msetiterated  e                       -> fold_iter_container_kind f accu e
   | Msettoiterate e                       -> fold_iter_container_kind f accu e
   (* formula asset collection methods *)
@@ -1971,6 +2103,7 @@ let fold_map_var_kind f accu = function
   | Vstorevar -> Vstorevar, accu
   | Vstorecol -> Vstorecol, accu
   | Venumval  -> Venumval,  accu
+  | Vdefinition -> Vdefinition, accu
   | Vlocal    -> Vlocal,    accu
   | Vparam    -> Vparam,    accu
   | Vfield    -> Vfield,    accu
@@ -1978,13 +2111,14 @@ let fold_map_var_kind f accu = function
   | Vthe      -> Vthe,      accu
 
 let fold_map_container_kind f accu = function
-  | CKcoll -> CKcoll, accu
+  | CKcoll (t, d) -> CKcoll (t, d), accu
   | CKview mt ->
     let mte, mta = f accu mt in
     CKview mte, mta
-  | CKfield (an, fn, mt) ->
+  | CKfield (an, fn, mt, t, d) ->
     let mte, mta = f accu mt in
-    CKfield (an, fn, mte), mta
+    CKfield (an, fn, mte, t, d), mta
+  | CKdef v -> CKdef v, accu
 
 let fold_map_iter_container_kind f accu = function
   | ICKcoll an -> ICKcoll an, accu
@@ -2067,15 +2201,15 @@ let fold_map_term
 
   | Mif (c, t, e) ->
     let ce, ca = f accu c in
-    let ti, ta = f ca t in
-    let ei, ea =
+    let te, ta = f ca t in
+    let ee, ea =
       match e with
       | Some v ->
         let a, b = f ta v in
         Some a, b
-      | None -> None, ca
+      | None -> None, ta
     in
-    g (Mif (ce, ti, ei)), ea
+    g (Mif (ce, te, ee)), ea
 
   | Mmatchwith (e, l) ->
     let ee, ea = f accu e in
@@ -2224,6 +2358,12 @@ let fold_map_term
     in
     g (Mexprmatchwith (ee, pse)), psa
 
+  | Mmatchsome (e, n, i, s) ->
+    let ee, ea = f accu e in
+    let ne, na = f ea n in
+    let se, sa = f na s in
+    g (Mmatchsome (ee, ne, i, se)), sa
+
 
   (* composite type constructors *)
 
@@ -2283,14 +2423,6 @@ let fold_map_term
     let ke, ka = f accu k in
     g (Mdotassetfield (an, ke, fn)), ka
 
-  | Mdotcontract (e, i) ->
-    let ee, ea = f accu e in
-    g (Mdotcontract (ee, i)), ea
-
-  | Maccestuple (e, i) ->
-    let ee, ea = f accu e in
-    g (Maccestuple (ee, i)), ea
-
 
   (* comparison operators *)
 
@@ -2347,6 +2479,11 @@ let fold_map_term
     let re, ra = f la r in
     g (Mor (le, re)), ra
 
+  | Mxor (l, r) ->
+    let le, la = f accu l in
+    let re, ra = f la r in
+    g (Mxor (le, re)), ra
+
   | Mnot e ->
     let ee, ea = f accu e in
     g (Mnot ee), ea
@@ -2380,10 +2517,6 @@ let fold_map_term
     let le, la = f accu l in
     let re, ra = f la r in
     g (Mmodulo (le, re)), ra
-
-  | Muplus e ->
-    let ee, ea = f accu e in
-    g (Muplus ee), ea
 
   | Muminus e ->
     let ee, ea = f accu e in
@@ -2458,6 +2591,10 @@ let fold_map_term
     in
     g (Maddupdate (an, ce, ke, le)), la
 
+  | Maddforce (an, v) ->
+    let ve, va = f accu v in
+    g (Maddforce (an, ve)), va
+
 
   (* asset api expression *)
 
@@ -2522,6 +2659,17 @@ let fold_map_term
     let xe, xa = f accu x in
     g (Mtupleaccess (xe, k)), xa
 
+  | Mrecupdate (x, l) ->
+    let xe, xa = f accu x in
+    let (le, la) =
+      List.fold_left
+        (fun (ls, accu) (i, v) ->
+           let va, accu = f accu v in
+           (i, va)::ls, accu) ([], xa) l
+      |> (fun (x, y) -> (List.rev x, y))
+    in
+    g (Mrecupdate (xe, le)), la
+
 
   (* set api expression *)
 
@@ -2544,6 +2692,12 @@ let fold_map_term
     let ce, ca = f accu c in
     g (Msetlength (t, ce)), ca
 
+  | Msetfold (t, ix, ia, c, a, b) ->
+    let ce, ca = f accu c in
+    let ae, aa = f ca a in
+    let be, ba = f aa b in
+    g (Msetfold (t, ix, ia, ce, ae, be)), ba
+
 
   (* list api expression *)
 
@@ -2552,19 +2706,33 @@ let fold_map_term
     let ae, aa = f ca a in
     g (Mlistprepend (t, ce, ae)), aa
 
-  | Mlistcontains (t, c, a) ->
+  | Mlistheadtail (t, c) ->
     let ce, ca = f accu c in
-    let ae, aa = f ca a in
-    g (Mlistcontains (t, ce, ae)), aa
+    g (Mlistheadtail (t, ce)), ca
 
   | Mlistlength (t, c) ->
     let ce, ca = f accu c in
     g (Mlistlength (t, ce)), ca
 
+  | Mlistcontains (t, c, a) ->
+    let ce, ca = f accu c in
+    let ae, aa = f ca a in
+    g (Mlistcontains (t, ce, ae)), aa
+
   | Mlistnth (t, c, a) ->
     let ce, ca = f accu c in
     let ae, aa = f ca a in
     g (Mlistnth (t, ce, ae)), aa
+
+  | Mlistreverse (t, l) ->
+    let le, la = f accu l in
+    g (Mlistreverse (t, le)), la
+
+  | Mlistfold (t, ix, ia, c, a, b) ->
+    let ce, ca = f accu c in
+    let ae, aa = f ca a in
+    let be, ba = f aa b in
+    g (Mlistfold (t, ix, ia, ce, ae, be)), ba
 
 
   (* map api expression *)
@@ -2599,6 +2767,11 @@ let fold_map_term
     let ce, ca = f accu c in
     g (Mmaplength (tk, tv, ce)), ca
 
+  | Mmapfold (t, ik, iv, ia, c, a, b) ->
+    let ce, ca = f accu c in
+    let ae, aa = f ca a in
+    let be, ba = f aa b in
+    g (Mmapfold (t, ik, iv, ia, ce, ae, be)), ba
 
   (* builtin functions *)
 
@@ -2711,12 +2884,15 @@ let fold_map_term
   | Mchainid ->
     g Mchainid, accu
 
+  | Mmetadata ->
+    g Mmetadata, accu
+
 
   (* variable *)
 
-  | Mvar (id, k) ->
+  | Mvar (id, k, t, d) ->
     let ke, ka = fold_map_var_kind f accu k in
-    g (Mvar (id, ke)), ka
+    g (Mvar (id, ke, t, d)), ka
 
 
   (* rational *)
@@ -2745,11 +2921,6 @@ let fold_map_term
     let te, ta = f ca t in
     g (Mrattez (ce, te)), ta
 
-  | Mdivtez (c, t) ->
-    let ce, ca = f accu c in
-    let te, ta = f ca t in
-    g (Mdivtez (ce, te)), ta
-
   | Mnattoint e ->
     let ee, ea = f accu e in
     g (Mnattoint ee), ea
@@ -2766,20 +2937,6 @@ let fold_map_term
     let ce, ca = f accu c in
     let te, ta = f ca t in
     g (Mratdur (ce, te)), ta
-
-
-  (* functional *)
-
-  | Mfold (i, is, c, b) ->
-    let ce, ca = f accu c in
-    let bi, ba = f ca b in
-    g (Mfold (i, is, ce, bi)), ba
-
-
-  (* imperative *)
-
-  | Mbreak ->
-    g (Mbreak), accu
 
 
   (* quantifiers *)
@@ -2817,26 +2974,6 @@ let fold_map_term
 
 
   (* formula asset collection *)
-
-  | Msetbefore e ->
-    let ee, ea = f accu e in
-    g (Msetbefore ee), ea
-
-  | Msetat (lbl, e) ->
-    let ee, ea = f accu e in
-    g (Msetat (lbl, ee)), ea
-
-  | Msetunmoved e ->
-    let ee, ea = f accu e in
-    g (Msetunmoved ee), ea
-
-  | Msetadded e ->
-    let ee, ea = f accu e in
-    g (Msetadded ee), ea
-
-  | Msetremoved e ->
-    let ee, ea = f accu e in
-    g (Msetremoved ee), ea
 
   | Msetiterated e ->
     let ee, ea = fold_map_iter_container_kind f accu e in
@@ -2949,6 +3086,7 @@ let fold_model (f : ('id, 't) ctx_model_gen -> 'a -> 'id mterm_gen -> 'a) (m : '
     let accu : 'a = (
       match a.node with
       | Function (fs, _)
+      | Getter (fs, _)
       | Entry fs -> f {ctx with fs = Some fs} accu fs.body
     ) in
     Option.map_dfl (fun (x : 'id specification_gen) -> fold_specification ctx f x accu) accu a.spec
@@ -2978,6 +3116,7 @@ type kind_ident =
   | KIstoragefield
   | KIentry
   | KIfunction
+  | KIgetter
   | KIargument
   | KIlocalvar
   | KIlabel
@@ -2987,6 +3126,8 @@ type kind_ident =
   | KIinvariant
   | KIpostcondition
   | KIpostconditionuse
+  | KIfaillabel
+  | KIfailarg
   | KIsecurityad
   | KIsecurityrole
   | KIsecurityentry
@@ -3024,6 +3165,7 @@ let map_model (f : kind_ident -> ident -> ident) (for_type : type_ -> type_) (fo
         | Lcontains t -> Lcontains (for_type t)
         | Llength   t -> Llength   (for_type t)
         | Lnth      t -> Lnth      (for_type t)
+        | Lreverse  t -> Lreverse  (for_type t)
       in
       let for_api_builtin (abuiltin : api_builtin) : api_builtin =
         match abuiltin with
@@ -3048,7 +3190,6 @@ let map_model (f : kind_ident -> ident -> ident) (for_type : type_ -> type_) (fo
         | RatArith  -> RatArith
         | RatUminus -> RatUminus
         | RatTez    -> RatTez
-        | DivTez    -> DivTez
         | RatDur    -> RatDur
       in
       match asn with
@@ -3178,6 +3319,15 @@ let map_model (f : kind_ident -> ident -> ident) (for_type : type_ -> type_) (fo
         loc  = d.loc;
       }
     in
+    let for_fail (f : fail) : fail =
+      {
+        label        = g KIfaillabel f.label;
+        arg          = g KIfailarg   f.arg;
+        atype        = for_type      f.atype;
+        formula      = for_mterm     f.formula;
+        loc          = f.loc;
+      }
+    in
     let for_variable (v : variable) : variable =
       let for_argument (arg : argument) : argument =
         let a, b, c = arg in
@@ -3209,6 +3359,7 @@ let map_model (f : kind_ident -> ident -> ident) (for_type : type_ -> type_) (fo
       definitions    = List.map for_definition    spec.definitions;
       lemmas         = List.map for_label_term    spec.lemmas;
       theorems       = List.map for_label_term    spec.theorems;
+      fails          = List.map for_fail          spec.fails;
       variables      = List.map for_variable      spec.variables;
       invariants     = List.map (fun (x, y) -> g KIinvariant x, List.map for_label_term y) spec.invariants;
       effects        = List.map for_mterm         spec.effects;
@@ -3224,15 +3375,17 @@ let map_model (f : kind_ident -> ident -> ident) (for_type : type_ -> type_) (fo
           g KIargument a, for_type b, Option.map for_mterm c
         in
         {
-          name = g (match fn with | Function _ -> KIfunction | Entry _ -> KIentry) fs.name;
-          args = List.map for_argument fs.args;
-          body = for_mterm fs.body;
-          loc  = fs.loc;
+          name  = g (match fn with | Function _ -> KIfunction | Getter _ -> KIgetter | Entry _ -> KIentry) fs.name;
+          args  = List.map for_argument fs.args;
+          eargs = List.map for_argument fs.eargs;
+          body  = for_mterm fs.body;
+          loc   = fs.loc;
         }
       in
       match fn with
       | Function (fs, t) -> Function (for_function_struct fs, for_type t)
-      | Entry fs         -> Entry (for_function_struct fs)
+      | Getter   (fs, t) -> Getter   (for_function_struct fs, for_type t)
+      | Entry     fs     -> Entry    (for_function_struct fs)
     in
     {
       node = for_function_node f__.node;
@@ -3314,10 +3467,11 @@ let replace_ident_model (f : kind_ident -> ident -> ident) (model : model) : mod
     | Tset k            -> Tset k
     | Tmap (b, k, v)    -> Tmap (b, k, for_type v)
     | Trecord id        -> Trecord (g KIrecordname id)
+    | Tlambda (a, r)    -> Tlambda (for_type a, for_type r)
     | Tunit             -> t
     | Tstorage          -> t
     | Toperation        -> t
-    | Tentrysig t       -> Tentrysig (for_type t)
+    | Tcontract t       -> Tcontract (for_type t)
     | Tprog a           -> Tprog (for_type a)
     | Tvset (v, a)      -> Tvset (v, for_type a)
     | Ttrace _          -> t
@@ -3344,6 +3498,8 @@ let extract_list (mt : mterm) (e : mterm) =
 
 (* -------------------------------------------------------------------- *)
 
+type effect = Eadded of ident | Eremoved of ident | Eupdated of ident
+[@@deriving show {with_path = false}]
 module Utils : sig
 
   val get_vars                           : model -> var list
@@ -3354,6 +3510,7 @@ module Utils : sig
   val get_enum                           : model -> ident -> enum
   val get_enum_values                    : model -> ident -> ident list
   val get_asset                          : model -> ident -> asset
+  val get_record                         : model -> ident -> record
   val get_storage                        : model -> storage
   val get_asset_field                    : model -> (ident * ident) -> (ident * type_ * mterm option)
   val get_asset_key                      : model -> ident -> (ident * type_)
@@ -3386,7 +3543,6 @@ module Utils : sig
   val get_formula                        : model -> mterm option -> ident -> mterm option
   val is_post                            : postcondition -> bool
   val get_sum_idxs                       : model -> ident -> int list
-  val get_added_removed_sets             : model -> specification option -> mterm__node list
   val get_storage_invariants             : model -> ident option -> (ident * ident * mterm) list
   val is_field_storage                   : model -> ident -> bool
   val with_trace                         : model -> bool
@@ -3399,6 +3555,7 @@ module Utils : sig
   val with_operations_for_mterm          : mterm -> bool
   val with_operations                    : model -> bool
   val get_source_for                     : model -> ctx_model -> mterm -> mterm option
+  val cmp                                : mterm -> mterm -> int
   val eval                               : (ident * mterm) list -> mterm -> mterm
   val type_rational                      : type_
   val mk_rat                             : Core.big_int -> Core.big_int -> mterm
@@ -3416,10 +3573,19 @@ module Utils : sig
   val get_all_set_types                  : model -> type_ list
   val get_all_list_types                 : model -> type_ list
   val get_all_map_types                  : model -> type_ list
+  val get_all_fail_types                 : model -> type_ list
   val extract_key_value_from_masset      : model -> mterm -> mterm
   val is_not_string_nat_int              : type_ -> bool
   val get_function                       : model -> ident -> function_struct
   val get_asset_partitions               : model -> ident -> (ident * ident) list
+  val get_specifications                 : model -> specification list
+  val get_specification                  : model -> ident -> specification option
+  val get_fss                            : model -> function_struct list
+  val get_fs                             : model -> ident -> function_struct
+  val extract_assign_kind                : mterm -> assign_kind list
+  val extract_asset_effect               : model -> mterm -> effect list
+  val extract_var_idents                 : model -> mterm -> ident list
+
 end = struct
 
   open Tools
@@ -3453,12 +3619,14 @@ end = struct
   let get_function_args (f : function__) : argument list =
     match f.node with
     | Function (s,_) -> s.args
+    | Getter (s,_)   -> s.args
     | Entry s        -> s.args
 
   let set_function_args (f : function__) (args : argument list) : function__ =
     match f.node with
-    | Function (s,t) -> { node = Function ({ s with args = args },t); spec = f.spec }
-    | Entry s        -> { node = Entry { s with args = args }; spec = f.spec }
+    | Function (s, t) -> { node = Function ({ s with args = args },t); spec = f.spec }
+    | Getter (s, t)   -> { node = Getter   ({ s with args = args },t); spec = f.spec }
+    | Entry s         -> { node = Entry     { s with args = args };    spec = f.spec }
 
   let is_entry (f : function__) : bool =
     match f with
@@ -3543,7 +3711,8 @@ end = struct
                                            |> List.find (fun (x : enum)  -> cmp_ident id (unloc x.name))
                                            |> fun e -> e.values
                                                        |> List.map (fun (v : enum_item) -> unloc (v.name))
-  let get_asset m id : asset = get_assets m |> List.find (fun (x : asset) -> cmp_ident id (unloc x.name))
+  let get_asset  m id : asset = get_assets m |> List.find (fun (x : asset) -> cmp_ident id (unloc x.name))
+  let get_record m id : record = get_records m |> List.find (fun (x : record) -> cmp_ident id (unloc x.name))
 
   let get_containers_internal f m : (ident * ident * type_) list =
     get_assets m |> List.fold_left (fun acc (asset : asset) ->
@@ -3725,6 +3894,9 @@ end = struct
       | Function (s,r) -> Function ({
           s with body = m s.body;
         },r)
+      | Getter (s,r) -> Getter ({
+          s with body = m s.body;
+        },r)
       | Entry s        -> Entry {
           s with body = m s.body;
         }
@@ -3739,12 +3911,12 @@ end = struct
 
   let is_varlocal (t : mterm) =
     match t.node with
-    | Mvar (_, Vlocal) -> true
+    | Mvar (_, Vlocal, _, _) -> true
     | _ -> false
 
   let dest_varlocal (t : mterm) =
     match t.node with
-    |  Mvar (i, Vlocal) -> unloc i
+    |  Mvar (i, Vlocal, _, _) -> unloc i
     | _ -> assert false
 
   let is_container t =
@@ -3791,15 +3963,6 @@ end = struct
     match s.mode with
     | Post -> true
     | _ -> false
-
-  let get_added_removed_sets (_m : model) v : ((lident,(lident mterm_gen)) mterm_node) list =
-    let rec internal_fold_add_remove ctx acc (term : mterm) =
-      match term.node with
-      | Msetadded e -> acc @ [ Msetadded e ]
-      | Msetremoved e -> acc @ [ Msetremoved e ]
-      | _ -> fold_term (internal_fold_add_remove ctx) acc term in
-    Tools.List.dedup (Option.map_dfl (fun (x : specification) ->
-        fold_specification (mk_ctx_model ()) internal_fold_add_remove x []) [] v)
 
   (* returns asset name * invariant name * invariant term *)
   let get_storage_invariants (m : model) (asset_name : ident option) : (ident * ident * mterm) list =
@@ -3859,7 +4022,8 @@ end = struct
         (fun (f : function__) ->
            match f.node with
            | Function (fs, _) -> unloc fs.name, fs
-           | Entry fs-> unloc fs.name, fs)
+           | Getter   (fs, _) -> unloc fs.name, fs
+           | Entry     fs     -> unloc fs.name, fs)
         m.functions
     in
     let fun_id_list = List.map fst fun_ids in
@@ -3885,6 +4049,7 @@ end = struct
       let name =
         match f.node with
         | Entry fs -> unloc fs.name
+        | Getter (fs, _) -> unloc fs.name
         | Function (fs, _) -> unloc fs.name
       in
       []
@@ -3903,11 +4068,11 @@ end = struct
 
   let get_source_for (_m : model) (_ctx : ctx_model) (c : mterm) : mterm option =
     match c.node with
-    | Mvar(an, Vparam) ->
+    | Mvar(an, Vparam, t, d) ->
       begin
         let l, an = deloc an in
         let idparam = mkloc l (an ^ "_values") in
-        Some (mk_mterm (Mvar(idparam, Vparam) ) (Tmap(false, Tbuiltin Bint, Tasset (dumloc "myasset"))))
+        Some (mk_mterm (Mvar(idparam, Vparam, t, d) ) (Tmap(false, Tbuiltin Bint, Tasset (dumloc "myasset"))))
       end
     | _ -> None
 
@@ -3926,14 +4091,36 @@ end = struct
     | true, false  -> mk (neg x) (abs y)
     | false, false -> mk (abs x) (abs y)
 
+  let rec cmp (lhs : mterm) (rhs : mterm) : int =
+    match lhs.node, rhs.node with
+    | Mbool      v1, Mbool v2      -> Bool.compare v1 v2
+    | Mnat       v1, Mnat v2       -> Big_int.compare_big_int v1 v2
+    | Mint       v1, Mint v2       -> Big_int.compare_big_int v1 v2
+    | Mstring    v1, Mstring v2    -> String.compare v1 v2
+    | Mcurrency  (v1, Utz), Mcurrency  (v2, Utz) -> Big_int.compare_big_int v1 v2
+    | Maddress   v1, Maddress   v2 -> String.compare v1 v2
+    | Mdate      v1, Mdate      v2 -> Big_int.compare_big_int (Core.date_to_timestamp v1) (Core.date_to_timestamp v2)
+    | Mtimestamp v1, Mtimestamp v2 -> Big_int.compare_big_int v1 v2
+    | Mbytes     v1, Mbytes     v2 -> String.compare v1 v2
+    | Mtuple l1, Mtuple l2 when List.length l1 = List.length l2 ->
+      List.fold_left2 (fun accu x y ->
+          match accu with
+          | Some _ -> accu
+          | None -> let r = cmp x y in if r = 0 then None else Some r
+        ) None l1 l2 |> (Option.get_dfl 0)
+    (* | Mlitrecord _ *)
+    | Mcast (_, _, v1), _          -> cmp v1 rhs
+    | _, Mcast (_, _, v2)          -> cmp lhs v2
+    | _ -> Format.eprintf "lhs:%a@.rhs:%a@." pp_mterm lhs pp_mterm rhs; assert false
+
   let eval (map_const_value : (ident * mterm) list) (mt : mterm) : mterm =
     let get_value (id : ident) : mterm = List.assoc id map_const_value in
     let is_const (id : ident) : bool = List.assoc_opt id map_const_value |> Option.is_some in
     let remove_const (mt : mterm) : mterm =
       let rec aux (mt : mterm) : mterm =
         match mt.node with
-        | Mvar(v, Vstorevar)
-        | Mvar(v, Vlocal) when is_const (unloc v) ->
+        | Mvar(v, Vstorevar, _, _)
+        | Mvar(v, Vlocal, _, _) when is_const (unloc v) ->
           let dv = get_value (unloc v) in
           aux dv
         | _ -> map_mterm aux mt
@@ -3959,6 +4146,10 @@ end = struct
       | _ -> false
     in
 
+    let is_rat  = function
+      | Ttuple [Tbuiltin Bint; Tbuiltin Bnat] -> true
+      | _ -> false
+    in
 
     let eval_expr mt :
       mterm =
@@ -3969,7 +4160,7 @@ end = struct
           | Mnattoint x -> extract_big_int x
           | Mnat v
           | Mint v -> v
-          | _ -> assert false
+          | _ -> Format.eprintf "%a@." pp_mterm i; assert false
         in
 
         let extract_bool (b : mterm) : bool =
@@ -3983,6 +4174,13 @@ end = struct
           let b = aux b in
           match b.node with
           | Mstring v -> v
+          | _ -> assert false
+        in
+
+        let extract_bytes (b : mterm) : string =
+          let b = aux b in
+          match b.node with
+          | Mbytes v -> v
           | _ -> assert false
         in
 
@@ -4037,7 +4235,58 @@ end = struct
           | false -> mk_mterm (Mint res) (Tbuiltin Bint)
         in
 
+        let cmp_op op lhs rhs =
+          let lhs = aux lhs in
+          let rhs = aux rhs in
+
+          let r =
+            match lhs.node, rhs.node with
+            | Mbool b1,     Mbool b2   -> Bool.compare b1 b2
+
+            | Mnat n1,     Mnat n2
+            | Mnat n1,     Mint n2
+            | Mint n1,     Mnat n2
+            | Mint n1,     Mint n2
+            | Mcurrency (n1, Utz), Mcurrency (n2, Utz)
+            | Mtimestamp n1, Mtimestamp n2 -> Big_int.compare_big_int n1 n2
+
+            | Maddress s1,  Maddress s2
+            | Mbytes s1,    Mbytes s2
+            | Mstring s1,   Mstring  s2 -> String.compare s1 s2
+
+            | Mdate d1,     Mdate d2 -> Big_int.compare_big_int (Core.date_to_timestamp d1) (Core.date_to_timestamp d2)
+            | Mduration d1, Mduration d2 -> Big_int.compare_big_int (Core.duration_to_timestamp d1) (Core.duration_to_timestamp d2)
+            | _ -> assert false
+          in
+          let b =
+            match op with
+            | `Eq -> r = 0
+            | `Nq -> r <> 0
+            | `Gt -> r > 0
+            | `Ge -> r >= 0
+            | `Lt -> r < 0
+            | `Le -> r <= 0
+          in
+          mk_bool b
+        in
+
         match mt.node, mt.type_ with
+        | Mnattoint x, _ -> let n = extract_big_int x in mk_bint n
+        | Mnattorat x, _
+        | Minttorat x, _ -> begin
+            let n = extract_big_int x in
+            mk_rat n Big_int.unit_big_int
+          end
+        | Muminus x, _ -> begin
+            let n = extract_big_int x in
+            mk_bint (Big_int.minus_big_int n)
+          end
+        | Mequal (_, lhs, rhs), _  -> cmp_op `Eq lhs rhs
+        | Mnequal (_, lhs, rhs), _ -> cmp_op `Nq lhs rhs
+        | Mgt (lhs, rhs), _        -> cmp_op `Gt lhs rhs
+        | Mge (lhs, rhs), _        -> cmp_op `Ge lhs rhs
+        | Mlt (lhs, rhs), _        -> cmp_op `Lt lhs rhs
+        | Mle (lhs, rhs), _        -> cmp_op `Le lhs rhs
         | Mplus   (a, b), Tbuiltin Bstring -> begin
             let a = extract_string a in
             let b = extract_string b in
@@ -4080,6 +4329,24 @@ end = struct
             let res = Big_int.eq_big_int (Big_int.mult_big_int num1 denom2) (Big_int.mult_big_int num2 denom1) in
             mk_mterm (Mbool res) (Tbuiltin Bbool)
           end
+
+        | Mratcmp (op, a, b), _ -> begin
+            let num1, denom1 = extract_rat (aux a) in
+            let num2, denom2 = extract_rat (aux b) in
+            let a = Big_int.mult_big_int num1 denom2 in
+            let b = Big_int.mult_big_int num2 denom1 in
+            let res =
+              begin
+                match op with
+                | Gt -> Big_int.gt_big_int a b
+                | Ge -> Big_int.ge_big_int a b
+                | Lt -> Big_int.lt_big_int a b
+                | Le -> Big_int.le_big_int a b
+              end
+            in
+            mk_bool res
+          end
+
         | Mratarith (op, a, b), _ -> begin
             let num1, denom1 = extract_rat (aux a) in
             let num2, denom2 = extract_rat (aux b) in
@@ -4089,26 +4356,12 @@ end = struct
             | Rmult  -> mk_rat (Big_int.mult_big_int num1 num2) (Big_int.mult_big_int denom1 denom2)
             | Rdiv   -> mk_rat (Big_int.mult_big_int num1 denom2) (Big_int.mult_big_int num2 denom1)
           end
+
         | Mratuminus x, _ -> begin
             let num, denom = extract_rat (aux x) in
             mk_rat (neg num) denom
           end
 
-        (* | Mratcmp (op, _a, _b) ->
-           begin
-            (* let num1, denom1 = extract_rat a in
-               let num2, denom2 = extract_rat b in *)
-            let res =
-              begin
-                match op with
-                | Gt
-                | Ge
-                | Lt
-                | Le -> false (* TODO *)
-              end
-            in
-            mk_mterm (Mbool res) (Tbuiltin Bbool)
-           end *)
         | Mrattez (coef, c), _ ->
           begin
             let coef = aux coef in
@@ -4130,6 +4383,115 @@ end = struct
                 assert false
               end
           end
+
+        | Mratdur (lhs, rhs), _ -> begin
+            let lhs = aux lhs in
+            let rhs = aux rhs in
+            let f num denom v =
+              let res = Big_int.div_big_int (Big_int.mult_big_int num v) denom in
+              mk_bint res
+            in
+            match lhs.node, rhs.node with
+            | Mrational (num, denom), Mint v -> f num denom v
+            | Mtuple [num; denom], Mint v ->
+              begin
+                let num = extract_big_int num in
+                let denom = extract_big_int denom in
+                f num denom v
+              end
+            | _ -> begin
+                Format.eprintf "%a@." pp_mterm mt;
+                assert false
+              end
+          end
+
+        | Mmin (a, b) , t when is_rat t -> begin
+            let a = aux a in
+            let b = aux b in
+            let num1, denom1 = extract_rat a in
+            let num2, denom2 = extract_rat b in
+            let x = Big_int.mult_big_int num1 denom2 in
+            let y = Big_int.mult_big_int num2 denom1 in
+            if (Big_int.lt_big_int x y)
+            then a
+            else b
+          end
+
+        | Mmax (a, b) , t when is_rat t -> begin
+            let a = aux a in
+            let b = aux b in
+            let num1, denom1 = extract_rat a in
+            let num2, denom2 = extract_rat b in
+            let x = Big_int.mult_big_int num1 denom2 in
+            let y = Big_int.mult_big_int num2 denom1 in
+            if (Big_int.gt_big_int x y)
+            then a
+            else b
+          end
+
+        | Mabs x        , t when is_rat t -> begin
+            let num, denom = extract_rat (aux x) in
+            mk_rat (Big_int.abs_big_int num) denom
+          end
+
+        | Mmin (a, b), _ -> begin
+            let a = aux a in
+            let b = aux b in
+            if cmp a b < 0
+            then a
+            else b
+          end
+
+        | Mmax (a, b), _ -> begin
+            let a = aux a in
+            let b = aux b in
+            if cmp a b > 0
+            then a
+            else b
+          end
+
+        | Mabs x, _ -> begin
+            let n = extract_big_int x in
+            mk_bnat (Big_int.abs_big_int n)
+          end
+
+        | Mfloor x, _ -> begin
+            let num, denom = extract_rat (aux x) in
+            let n = Big_int.div_big_int num denom in
+            mk_bint n
+          end
+
+        | Mceil x, _ -> begin
+            let num, denom = extract_rat (aux x) in
+            let n, m = Big_int.quomod_big_int num denom in
+            let n = Big_int.add_big_int n (if Big_int.eq_big_int m Big_int.zero_big_int then Big_int.zero_big_int else Big_int.unit_big_int) in
+            mk_bint n
+          end
+
+        | Mconcat (x, y), t -> begin
+            match t with
+            | Tbuiltin Bstring -> let x = extract_string x in let y = extract_string y in mk_string (x ^ y)
+            | Tbuiltin Bbytes  -> let x = extract_bytes  x in let y = extract_bytes  y in mk_bytes (x ^ y)
+            | _ -> assert false
+          end
+
+        | Mslice (s, a, b), t -> begin
+            let a = extract_big_int a |> Big_int.int_of_big_int in
+            let b = extract_big_int b |> Big_int.int_of_big_int in
+
+            match t with
+            | Tbuiltin Bstring -> let s = extract_string s in mk_string (String.sub s a b)
+            | Tbuiltin Bbytes  -> let s = extract_bytes  s in mk_bytes  (String.sub s (2 * a) (2 * b))
+            | _ -> assert false
+          end
+
+        | Mlength x, _ -> begin
+            match x.type_ with
+            | Tbuiltin Bstring -> let x = extract_string x in mk_nat (String.length x)
+            | Tbuiltin Bbytes  -> let x = extract_bytes  x in mk_nat (String.length x)
+            | _ -> assert false
+          end
+
         | _ -> map_mterm aux mt
       in
       aux mt
@@ -4225,7 +4587,7 @@ end = struct
       ) false m.api_items
 
   let get_asset_collection (an : ident) : mterm =
-    mk_mterm (Mvar (dumloc an, Vstorecol)) (Tcontainer (Tasset (dumloc an), Collection))
+    mk_mterm (Mvar (dumloc an, Vstorecol, Tnone, Dnone)) (Tcontainer (Tasset (dumloc an), Collection))
 
   let is_asset_single_field (model : model) (an : ident) : bool =
     get_asset model an |> fun x -> x.values |> List.filter (fun (x : asset_item) -> not x.shadow) |> List.length = 1
@@ -4300,30 +4662,30 @@ end = struct
              | APIInternal (RatArith      ) ->  3
              | APIInternal (RatUminus     ) ->  4
              | APIInternal (RatTez        ) ->  5
-             | APIInternal (DivTez        ) ->  6
-             | APIInternal (RatDur        ) ->  7
-             | APIAsset   (Nth           _) -> if verif then 8 else 9
-             | APIAsset   (Get           _) -> if verif then 9 else 8
-             | APIAsset   (Set           _) -> 10
-             | APIAsset   (Add           _) -> 11
-             | APIAsset   (Remove        _) -> 12
-             | APIAsset   (Update        _) -> 13
-             | APIAsset   (FieldAdd      _) -> 14
-             | APIAsset   (FieldRemove   _) -> 15
-             | APIAsset   (RemoveAll     _) -> 16
-             | APIAsset   (RemoveIf      _) -> 17
-             | APIAsset   (Clear         _) -> 18
-             | APIAsset   (Contains      _) -> 19
-             | APIAsset   (Select        _) -> 20
-             | APIAsset   (Sort          _) -> 21
-             | APIAsset   (Count         _) -> 22
-             | APIAsset   (Sum           _) -> 23
-             | APIAsset   (Head          _) -> 24
-             | APIAsset   (Tail          _) -> 25
-             | APIList    (Lprepend      _) -> 26
-             | APIList    (Lcontains     _) -> 27
-             | APIList    (Llength       _) -> 28
-             | APIList    (Lnth          _) -> 29
+             | APIInternal (RatDur        ) ->  6
+             | APIAsset   (Nth           _) -> if verif then 7 else 8
+             | APIAsset   (Get           _) -> if verif then 8 else 7
+             | APIAsset   (Set           _) -> 9
+             | APIAsset   (Add           _) -> 10
+             | APIAsset   (Remove        _) -> 11
+             | APIAsset   (Update        _) -> 12
+             | APIAsset   (FieldAdd      _) -> 13
+             | APIAsset   (FieldRemove   _) -> 14
+             | APIAsset   (RemoveAll     _) -> 15
+             | APIAsset   (RemoveIf      _) -> 16
+             | APIAsset   (Clear         _) -> 17
+             | APIAsset   (Contains      _) -> 18
+             | APIAsset   (Select        _) -> 19
+             | APIAsset   (Sort          _) -> 20
+             | APIAsset   (Count         _) -> 21
+             | APIAsset   (Sum           _) -> 22
+             | APIAsset   (Head          _) -> 23
+             | APIAsset   (Tail          _) -> 24
+             | APIList    (Lprepend      _) -> 25
+             | APIList    (Lcontains     _) -> 26
+             | APIList    (Llength       _) -> 27
+             | APIList    (Lnth          _) -> 28
+             | APIList    (Lreverse      _) -> 29
              | APIBuiltin (Bmin          _) -> 30
              | APIBuiltin (Bmax          _) -> 31
              | APIBuiltin (Babs          _) -> 32
@@ -4349,27 +4711,7 @@ end = struct
          else c1
       )
 
-  let get_all_gen_type for_type (model : model) =
-    let for_mterm (accu : 'a) (mt : mterm) : 'a =
-      let rec aux accu (mt : mterm) =
-        let accu = for_type accu mt.type_ in
-        match mt.node with
-        | Mletin (_, x, ot, b, o) -> begin
-            accu
-            |> (fun accu -> aux accu x)
-            |> (fun accu -> Option.map_dfl (for_type accu) accu ot)
-            |> (fun accu -> aux accu b)
-            |> (fun accu -> Option.map_dfl (aux accu) accu o)
-          end
-        | Mdeclvar (_, Some t, v) -> begin
-            accu
-            |> (fun accu -> for_type accu t)
-            |> (fun accu -> aux accu v)
-          end
-        | _ -> fold_term aux accu mt
-      in
-      aux accu mt
-    in
+  let get_all_gen_mterm_type for_mterm for_type (model : model) =
     let for_label_term accu (lt : label_term) = for_mterm accu lt.term in
     let for_decl_node accu (d : decl_node) =
       let for_var accu (v : var) =
@@ -4467,6 +4809,7 @@ end = struct
         let fs, t =
           match fn with
           | Function (fs, t) -> fs, Some t
+          | Getter (fs, t) -> fs, Some t
           | Entry fs -> fs, None
         in
         accu
@@ -4484,6 +4827,29 @@ end = struct
     |> (fun accu -> List.fold_left for_function__   accu model.functions)
     |> (fun accu -> for_specification               accu model.specification)
 
+  let get_all_gen_type for_type (model : model) =
+    let for_mterm (accu : 'a) (mt : mterm) : 'a =
+      let rec aux accu (mt : mterm) =
+        let accu = for_type accu mt.type_ in
+        match mt.node with
+        | Mletin (_, x, ot, b, o) -> begin
+            accu
+            |> (fun accu -> aux accu x)
+            |> (fun accu -> Option.map_dfl (for_type accu) accu ot)
+            |> (fun accu -> aux accu b)
+            |> (fun accu -> Option.map_dfl (aux accu) accu o)
+          end
+        | Mdeclvar (_, Some t, v) -> begin
+            accu
+            |> (fun accu -> for_type accu t)
+            |> (fun accu -> aux accu v)
+          end
+        | _ -> fold_term aux accu mt
+      in
+      aux accu mt
+    in
+    get_all_gen_mterm_type for_mterm for_type model
+
   let add_type (l : type_ list) (x : type_) =
     if List.exists (cmp_type x) l
     then l
@@ -4497,7 +4863,7 @@ end = struct
       | Toption t      -> for_type accu t
       | Ttuple  ts     -> List.fold_left (for_type) accu ts
       | Tmap (_, _, t) -> for_type accu t
-      | Tentrysig t    -> for_type accu t
+      | Tcontract t    -> for_type accu t
       | Tprog t        -> for_type accu t
       | Tvset (_, t)   -> for_type accu t
       | _ -> accu
@@ -4511,7 +4877,7 @@ end = struct
       | Toption t      -> for_type accu t
       | Ttuple  ts     -> List.fold_left (for_type) accu ts
       | Tmap (_, _, t) -> for_type accu t
-      | Tentrysig t    -> for_type accu t
+      | Tcontract t    -> for_type accu t
       | Tprog t        -> for_type accu t
       | Tvset (_, t)   -> for_type accu t
       | _ -> accu
@@ -4525,13 +4891,27 @@ end = struct
       | Toption   t          -> for_type accu t
       | Ttuple    ts         -> List.fold_left (for_type) accu ts
       | Tmap      (_, _, tv) -> add_type (for_type accu tv) t
-      | Tentrysig t          -> for_type accu t
+      | Tcontract t          -> for_type accu t
       | Tprog     t          -> for_type accu t
       | Tvset     (_, t)     -> for_type accu t
       | _ -> accu
     in
     get_all_gen_type for_type model
 
+  let get_all_fail_types (model : model) : type_ list =
+    let for_type accu _ = accu in
+
+    let for_mterm (accu : 'a) (mt : mterm) : 'a =
+      let rec aux accu (mt : mterm) =
+        let accu = for_type accu mt.type_ in
+        match mt.node with
+        | Mfail (Invalid e) -> let t = e.type_ in add_type accu t
+        | _ -> fold_term aux accu mt
+      in
+      aux accu mt
+    in
+
+    get_all_gen_mterm_type for_mterm for_type model
 
   let extract_key_value_from_masset (model : model) (v : mterm) : mterm =
     match v with
@@ -4547,7 +4927,7 @@ end = struct
 
   let get_function (model : model) (id : ident) : function_struct =
     model.functions
-    |> List.map (fun x -> match x.node with | Function (fs, _) | Entry fs -> fs)
+    |> List.map (fun x -> match x.node with | Function (fs, _) | Getter (fs, _) | Entry fs -> fs)
     |> List.find (fun (x : function_struct) -> String.equal (unloc x.name) id)
 
   let get_asset_partitions (model : model) asset_name : (ident * ident) list =
@@ -4557,5 +4937,126 @@ end = struct
         | Tcontainer (Tasset an, Partition) -> (unloc x.name, unloc an)::accu
         | _ -> accu
       ) [] asset.values
+
+  let get_specifications (model : model) =
+    [ model.specification ] @
+    (List.fold_left (fun acc (s,_) -> match s with Some v -> acc@[v] | None -> acc) [] (get_entries model)) @
+    ((List.fold_left (fun acc (s,_,_) -> match s with Some v -> acc@[v] | None -> acc)) [] (get_functions model))
+
+  let get_specification (model : model) (name : ident) =
+    let rec get_entry_spec = function
+      | (s, (f:function_struct))::_ when String.compare (unloc f.name) name = 0 -> s
+      | _::tl -> get_entry_spec tl
+      | [] -> None in
+    let rec get_function_spec = function
+      | (s, (f:function_struct),_)::_ when String.compare (unloc f.name) name = 0 -> s
+      | _::tl -> get_function_spec tl
+      | [] -> None in
+    match get_entry_spec (get_entries model) with
+    | Some s -> Some s
+    | None -> get_function_spec (get_functions model)
+
+  let get_fss (model : model) : function_struct list =
+    List.map (fun (x) -> match x.node with | Entry fs | Getter (fs, _) | Function (fs, _) -> fs) model.functions
+
+  let get_fs (model : model) (id : ident) : function_struct =
+    List.find (fun (x : function_struct) -> String.equal id (unloc x.name)) (get_fss model)
+
+  let extract_assign_kind (mt : mterm) : assign_kind list =
+    let rec aux accu (t : mterm) =
+      match t.node with
+      | Massign (_, _, ak, _) -> ak::accu
+      | _ -> fold_term aux accu t in
+    aux [] mt
+
+  let extract_asset_effect (model : model) (mt : mterm) : effect list =
+    let only_partition accu an fn p =
+      let aan, c = get_field_container model an fn in
+      match c with
+      | Partition -> begin match p with
+          | `Added -> (Eadded aan)::accu
+          | `Removed -> (Eremoved aan)::accu
+        end
+      | _ -> accu
+    in
+    let with_partition accu an fn m p =
+      let accu = begin match m with
+        | `Updated -> (Eupdated an)::accu
+      end in
+      only_partition accu an fn p
+    in
+    let all_partition accu an m p =
+      let accu = begin match m with
+        | `Updated -> (Eupdated an)::accu
+        | `Removed -> (Eremoved an)::accu
+        | `Added   -> (Eadded an)::accu
+      end in
+      let parts = get_asset_partitions model an in
+      List.fold_left (fun accu (aan, afn) -> only_partition accu aan afn p) accu parts
+    in
+    let rec aux accu (t : mterm) =
+      match t.node with
+      | Maddasset (an, _)                                 -> (Eadded an)::accu
+      | Maddfield (an, fn, _, _)                          -> with_partition accu an fn `Updated `Added
+      | Mremoveasset (an, _)                              -> (Eremoved an)::accu
+      | Mremovefield (an, fn, _, _)                       -> with_partition accu an fn `Updated `Removed
+      | Mremoveall (an, fn, _)                            -> with_partition accu an fn `Updated `Removed
+      | Mremoveif (an, CKcoll _, _, _, _)                 -> all_partition accu an `Removed `Removed
+      | Mremoveif (an, CKfield (_, fn, _, _, _), _, _, _) -> with_partition accu an fn `Updated `Removed
+      | Mclear (an, CKcoll _)                             -> all_partition accu an `Removed `Removed
+      | Mclear (an, CKview _)                             -> all_partition accu an `Removed `Removed
+      | Mclear (an, CKfield (_, fn, _, _, _))             -> with_partition accu an fn `Updated `Removed
+      | Mset (an, _, _, _)                                -> (Eupdated an)::accu
+      | Maddforce (an, _)                                 -> all_partition accu an `Added `Added
+      | _ -> fold_term aux accu t in
+    aux [] mt
+
+  let extract_var_idents (model : model) (mt : mterm) : ident list =
+    let add_expr_asset an ck accu =
+      let aan =
+        match ck with
+        | CKcoll _
+        | CKview _
+        | CKdef _ -> an
+        | CKfield (an, fn, _, _, _) -> get_field_container model an fn |> fst
+      in
+      aan::accu
+    in
+
+    let rec aux env accu (t : mterm) =
+      match t.node with
+      | Mletin (ids, a, _, b, o) ->
+        let f = aux (env @ (List.map unloc ids)) in
+        let tmp = f (f accu a) b in
+        Option.map_dfl (f tmp) tmp o
+      | Mforall (id, _, c, b) ->
+        let f = aux (env @ [unloc id]) in
+        f (Option.fold f accu c) b
+      | Mvar (id, Vlocal, _, _)  when not (List.exists (String.equal (unloc id)) env) -> (unloc id)::accu
+      | Mvar (id, Vstorevar, _, _) -> (unloc id)::accu
+      | Mvar (id, Vstorecol, _, _) -> (unloc id)::accu
+      | Mvar (_,  Vstate, _, _)    -> "state"::accu
+      | Mnow                       -> "now"::accu
+      | Mtransferred               -> "transferred"::accu
+      | Mcaller                    -> "caller"::accu
+      | Mbalance                   -> "balance"::accu
+      | Msource                    -> "source"::accu
+      | Mselfaddress               -> "selfaddress"::accu
+      | Mchainid                   -> "chainid"::accu
+      | Mmetadata                  -> "metadata"::accu
+
+      | Mget (an, ck, _)
+      | Mselect (an, ck, _, _, _)
+      | Msort (an, ck,_)
+      | Mcontains (an, ck, _)
+      | Mnth (an, ck, _)
+      | Mcount (an, ck)
+      | Msum (an, ck, _)
+      | Mhead (an, ck, _)
+      | Mtail (an, ck, _)          -> add_expr_asset an ck accu
+
+      | _ -> fold_term (aux env) accu t in
+    aux [] [] mt
+    |> Tools.List.dedup
 
 end
